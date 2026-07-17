@@ -43,3 +43,14 @@ CONFIG_FLAG_RULES = [
 ]
 
 TRIVIAL_DB_PASSWORDS = ("admin", "root", "password", "123456", "frappe")
+
+# ---- report.py --------------------------------------------------------------
+# frapsec severity -> SARIF level
+SARIF_LEVEL = {"critical": "error", "high": "error", "medium": "warning", "low": "note", "info": "note"}
+
+# severity -> HTML badge color (also fixes severity display order)
+SEVERITY_COLORS = {"critical": "#d32f2f", "high": "#f57c00", "medium": "#fbc02d", "low": "#7cb342", "info": "#90a4ae"}
+
+# DocType permission rights shown in the permission matrix
+PERMISSION_RIGHTS = ("read", "write", "create", "delete", "submit", "cancel", "amend",
+                     "report", "export", "share", "email", "print")

@@ -5,8 +5,7 @@ import json
 from collections import Counter
 
 from .model import Finding
-
-_SARIF_LEVEL = {"critical": "error", "high": "error", "medium": "warning", "low": "note", "info": "note"}
+from .rules.catalog import PERMISSIONPERMISSION_RIGHTS, SARIF_LEVEL, SEVERITYSEVERITY_COLORS
 
 
 def to_text(findings: list[Finding]) -> str:
@@ -23,16 +22,13 @@ def to_json(findings: list[Finding]) -> str:
     return json.dumps([dataclasses.asdict(f) for f in findings], indent=2)
 
 
-_COLORS = {"critical": "#d32f2f", "high": "#f57c00", "medium": "#fbc02d", "low": "#7cb342", "info": "#90a4ae"}
-
-
 def to_html(findings: list[Finding], title: str = "frapsec report") -> str:
     counts = Counter(f.severity for f in findings)
     badges = "".join(
-        f'<span class="badge" style="background:{_COLORS[s]}">{s} {counts[s]}</span>'
-        for s in _COLORS if counts.get(s))
+        f'<span class="badge" style="background:{SEVERITY_COLORS[s]}">{s} {counts[s]}</span>'
+        for s in SEVERITY_COLORS if counts.get(s))
     rows = "".join(
-        f'<tr><td><span class="badge" style="background:{_COLORS.get(f.severity, "#999")}">{f.severity}</span></td>'
+        f'<tr><td><span class="badge" style="background:{SEVERITY_COLORS.get(f.severity, "#999")}">{f.severity}</span></td>'
         f'<td><code>{html.escape(f.rule_id)}</code></td>'
         f'<td>{html.escape(f.message)}</td>'
         f'<td><code>{html.escape(f.file)}:{f.line}</code></td></tr>'
@@ -52,16 +48,13 @@ code{{font-size:.85rem}}
 </body></html>"""
 
 
-_RIGHTS = ("read", "write", "create", "delete", "submit", "cancel", "amend", "report", "export", "share", "email", "print")
-
-
 def permission_matrix(app) -> dict:
     """{role: {doctype: [rights]}} from DocType JSON perms."""
     matrix: dict = {}
     for dt in app.doctypes:
         for perm in dt.permissions:
             role = perm.get("role", "?")
-            rights = [r for r in _RIGHTS if perm.get(r)]
+            rights = [r for r in PERMISSION_RIGHTS if perm.get(r)]
             if perm.get("permlevel"):
                 rights = [f"{r}@L{perm['permlevel']}" for r in rights]
             matrix.setdefault(role, {}).setdefault(dt.name, []).extend(rights)
@@ -87,7 +80,7 @@ def to_sarif(findings: list[Finding]) -> str:
             ]}},
             "results": [{
                 "ruleId": f.rule_id,
-                "level": _SARIF_LEVEL.get(f.severity, "note"),
+                "level": SARIF_LEVEL.get(f.severity, "note"),
                 "message": {"text": f.message},
                 "locations": [{"physicalLocation": {
                     "artifactLocation": {"uri": f.file.replace("\\", "/")},
