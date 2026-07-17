@@ -1,26 +1,10 @@
 """Business-logic rules, connector-flavoured. AST scans over every .py in the app."""
 import ast
-from pathlib import Path
 
 from . import rule
 from .catalog import IDEMPOTENCY_CHECKS
+from ..callgraph import _iter_functions, reachable_from_endpoints
 from ..model import App, Finding
-
-
-def _iter_functions(app: App):
-    pkg = Path(app.path) / app.name
-    if not pkg.is_dir():
-        pkg = Path(app.path)
-    for py in pkg.rglob("*.py"):
-        if py.name.startswith("test_"):
-            continue
-        try:
-            tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                yield py, node
 
 
 def _restores_user_in_finally(fn: ast.AST) -> bool:
@@ -42,10 +26,13 @@ def _restores_user_in_finally(fn: ast.AST) -> bool:
 def admin_impersonation(app: App) -> list[Finding]:
     """frappe.set_user('Administrator') — privilege escalation if reachable from user input.
 
-    Downgraded to medium when the call sits in a try/finally that restores the
-    original user (scoped elevation, not a permanent switch) — still worth a
-    human glance for reachability, just not the loudest tier.
+    Graded two ways, both from real evidence rather than a flat severity:
+    - scoped (try/finally restores the original user) drops it a tier — still
+      worth a look, but it's not a permanent switch
+    - unreachable from any whitelisted endpoint (call-graph check) drops it
+      further — this is install/patch/background code, not attacker-facing
     """
+    reachable = reachable_from_endpoints(app)
     findings = []
     for py, fn in _iter_functions(app):
         for node in ast.walk(fn):
@@ -53,13 +40,18 @@ def admin_impersonation(app: App) -> list[Finding]:
                     and node.args and isinstance(node.args[0], ast.Constant)
                     and node.args[0].value == "Administrator"):
                 scoped = _restores_user_in_finally(fn)
+                is_reachable = fn.name in reachable
+                if not is_reachable:
+                    sev, note = "info", " — not reachable from any whitelisted endpoint (background/install code)"
+                elif scoped:
+                    sev, note = "medium", (" inside a try/finally that restores the original user (scoped) — "
+                                           "still verify the caller path is properly authenticated")
+                else:
+                    sev, note = "high", (" — everything after runs with full privileges; verify it can't be "
+                                         "reached with attacker-controlled input")
                 findings.append(Finding(
-                    rule_id="FRAP-BIZ-001", severity="medium" if scoped else "high", app=app.name,
-                    message=f"{fn.name}() switches session to Administrator" +
-                            (" inside a try/finally that restores the original user (scoped) — "
-                             "still verify the caller path is properly authenticated" if scoped else
-                             " — everything after runs with full privileges; verify it can't be "
-                             "reached with attacker-controlled input"),
+                    rule_id="FRAP-BIZ-001", severity=sev, app=app.name,
+                    message=f"{fn.name}() switches session to Administrator{note}",
                     file=str(py), line=node.lineno,
                 ))
     return findings
@@ -67,7 +59,12 @@ def admin_impersonation(app: App) -> list[Finding]:
 
 @rule
 def ignore_permissions(app: App) -> list[Finding]:
-    """save/insert/delete with ignore_permissions=True — inventory, graded by context."""
+    """save/insert/delete with ignore_permissions=True — graded by call-graph reachability
+    from a whitelisted endpoint, not just whether the immediate function is one itself.
+    A helper three calls deep from an endpoint is just as real a bypass as being in the
+    endpoint's own body — this catches that case, which a direct-decorator check misses.
+    """
+    reachable = reachable_from_endpoints(app)
     findings = []
     for py, fn in _iter_functions(app):
         for node in ast.walk(fn):
@@ -75,14 +72,19 @@ def ignore_permissions(app: App) -> list[Finding]:
                 continue
             if any(kw.arg == "ignore_permissions" and isinstance(kw.value, ast.Constant)
                    and kw.value.value for kw in node.keywords):
-                # user-reachable endpoint -> real bypass; background sync code -> inventory only
                 whitelisted = any("whitelist" in ast.unparse(d) for d in fn.decorator_list)
+                is_reachable = whitelisted or fn.name in reachable
+                if whitelisted:
+                    tag, note = "[whitelisted endpoint]", ""
+                elif is_reachable:
+                    tag, note = "[reachable from a whitelisted endpoint]", ""
+                else:
+                    tag, note = "", " (background code — normal for sync jobs, keep as inventory)"
                 findings.append(Finding(
-                    rule_id="FRAP-BIZ-002", severity="medium" if whitelisted else "info",
+                    rule_id="FRAP-BIZ-002", severity="medium" if is_reachable else "info",
                     app=app.name,
-                    message=f"{fn.name}(){' [whitelisted endpoint]' if whitelisted else ''} uses "
-                            f"ignore_permissions=True on {ast.unparse(node.func)[:60]} — bypasses "
-                            "the permission model" + ("" if whitelisted else " (background code — normal for sync jobs, keep as inventory)"),
+                    message=f"{fn.name}() {tag} uses ignore_permissions=True on "
+                            f"{ast.unparse(node.func)[:60]} — bypasses the permission model{note}",
                     file=str(py), line=node.lineno,
                 ))
     return findings

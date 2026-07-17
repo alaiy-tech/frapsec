@@ -89,10 +89,19 @@ def h(name):
     frappe.has_permission("Sales Invoice", throw=True)
     return frappe.db.get_all("Sales Invoice", filters={"customer": name})
 ''', "FRAP-API-002", False),
-    # FRAP-BIZ-001
-    ("set_admin", '''
+    # FRAP-BIZ-001 -- reachability-graded: unreachable from any endpoint -> info,
+    # reachable + unscoped -> high, reachable + scoped (try/finally restore) -> medium
+    ("set_admin_unreachable", '''
 import frappe
-def job():
+def install_job():
+    frappe.set_user("Administrator")
+''', "FRAP-BIZ-001", "info"),
+    ("set_admin_reachable_unscoped", '''
+import frappe
+@frappe.whitelist()
+def public_entry():
+    elevate()
+def elevate():
     frappe.set_user("Administrator")
 ''', "FRAP-BIZ-001", "high"),
     ("set_other", '''
@@ -102,7 +111,10 @@ def job(u):
 ''', "FRAP-BIZ-001", False),
     ("set_admin_scoped_restore", '''
 import frappe
-def job():
+@frappe.whitelist()
+def public_entry():
+    elevate()
+def elevate():
     original_user = frappe.session.user
     frappe.set_user("Administrator")
     try:
@@ -122,6 +134,14 @@ import frappe
 def sync_job(d):
     frappe.get_doc(d).insert(ignore_permissions=True)
 ''', "FRAP-BIZ-002", "info"),
+    ("ign_perm_helper_reachable", '''
+import frappe
+@frappe.whitelist()
+def public_entry(d):
+    _save(d)
+def _save(d):
+    frappe.get_doc(d).insert(ignore_permissions=True)
+''', "FRAP-BIZ-002", "medium"),
     # FRAP-BIZ-003
     ("docstatus_assign", '''
 def cancel_hack(doc):

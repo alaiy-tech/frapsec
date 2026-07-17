@@ -22,6 +22,10 @@ def main(argv=None):
     scan.add_argument("--no-semgrep", action="store_true", help="skip the semgrep layer")
     scan.add_argument("--diff", metavar="REF",
                       help="only report findings in files changed vs git REF (PR mode)")
+    scan.add_argument("--baseline", metavar="PATH",
+                      help="only report findings not already accepted in this baseline file")
+    scan.add_argument("--update-baseline", action="store_true",
+                      help="write all current findings to --baseline as accepted, then exit")
     perms = sub.add_parser("permissions", help="dump role -> DocType permission matrix")
     perms.add_argument("path", help="app path")
     perms.add_argument("--format", choices=["text", "json"], default="text")
@@ -55,6 +59,17 @@ def main(argv=None):
         ).stdout.splitlines()
         changed = {str((Path(args.path) / c).resolve()) for c in changed}
         findings = [f for f in findings if str(Path(f.file).resolve()) in changed]
+
+    if args.update_baseline:
+        if not args.baseline:
+            p.error("--update-baseline requires --baseline PATH")
+        from . import baseline
+        n = baseline.save(args.baseline, findings)
+        print(f"Baseline written: {n} finding(s) accepted at {args.baseline}")
+        return
+    if args.baseline:
+        from . import baseline
+        findings = baseline.filter_new(findings, baseline.load(args.baseline))
 
     fmt = {"text": report.to_text, "json": report.to_json,
            "sarif": report.to_sarif, "html": report.to_html}[args.format]
