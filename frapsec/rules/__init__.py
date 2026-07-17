@@ -10,7 +10,7 @@ def rule(fn):
 
 
 def run_all(apps: list[App]) -> list[Finding]:
-    from . import api, hooks, permissions  # noqa: F401 — importing registers rules
+    from . import api, business, hooks, permissions  # noqa: F401 — importing registers rules
     findings = []
     for app in apps:
         for r in _RULES:
