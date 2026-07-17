@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -19,7 +20,16 @@ def main(argv=None):
                       help="semgrep rules dir (default: bundled frapsec rules); "
                            "requires semgrep on PATH, skipped if absent")
     scan.add_argument("--no-semgrep", action="store_true", help="skip the semgrep layer")
+    perms = sub.add_parser("permissions", help="dump role -> DocType permission matrix")
+    perms.add_argument("path", help="app path")
+    perms.add_argument("--format", choices=["text", "json"], default="text")
     args = p.parse_args(argv)
+
+    if args.cmd == "permissions":
+        app = discovery.discover_app(args.path)
+        matrix = report.permission_matrix(app)
+        print(json.dumps(matrix, indent=2) if args.format == "json" else report.matrix_text(matrix))
+        return
 
     apps, sites = [], []
     if args.target_type == "bench":

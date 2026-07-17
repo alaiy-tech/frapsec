@@ -21,6 +21,31 @@ def to_json(findings: list[Finding]) -> str:
     return json.dumps([dataclasses.asdict(f) for f in findings], indent=2)
 
 
+_RIGHTS = ("read", "write", "create", "delete", "submit", "cancel", "amend", "report", "export", "share", "email", "print")
+
+
+def permission_matrix(app) -> dict:
+    """{role: {doctype: [rights]}} from DocType JSON perms."""
+    matrix: dict = {}
+    for dt in app.doctypes:
+        for perm in dt.permissions:
+            role = perm.get("role", "?")
+            rights = [r for r in _RIGHTS if perm.get(r)]
+            if perm.get("permlevel"):
+                rights = [f"{r}@L{perm['permlevel']}" for r in rights]
+            matrix.setdefault(role, {}).setdefault(dt.name, []).extend(rights)
+    return matrix
+
+
+def matrix_text(matrix: dict) -> str:
+    lines = []
+    for role in sorted(matrix):
+        lines.append(role)
+        for dt, rights in sorted(matrix[role].items()):
+            lines.append(f"  {dt:40} {', '.join(rights)}")
+    return "\n".join(lines) or "No DocType permissions found."
+
+
 def to_sarif(findings: list[Finding]) -> str:
     return json.dumps({
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
