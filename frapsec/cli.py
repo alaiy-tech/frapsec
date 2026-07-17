@@ -10,6 +10,12 @@ from .rules.config import run_config
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv or argv[0] in ("-h", "--help"):
+        from .tui import print_help
+        print_help()
+        return
+
     p = argparse.ArgumentParser(prog="frapsec", description="Frappe security scanner")
     sub = p.add_subparsers(dest="cmd", required=True)
     scan = sub.add_parser("scan", help="scan a bench or app")
@@ -44,7 +50,9 @@ def main(argv=None):
     console = None
     if interactive:
         from rich.console import Console
+        from .tui import print_banner
         console = Console()
+        print_banner(console)
 
     def spin(message: str):
         from .tui import status

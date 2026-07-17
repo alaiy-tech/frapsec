@@ -7,14 +7,58 @@ back to report.to_text). Same severity colors as the HTML report
 from collections import Counter
 
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from . import __version__
 from .model import Finding
 from .report import sort_findings
 from .rules.catalog import SEVERITY_COLORS
 
 _ORDER = ("critical", "high", "medium", "low", "info")
+
+_LOGO = r"""
+  ___                        _
+ / _ \                      | |
+| |_| |_ __ __ _ _ __  ___  ___  ___
+|  _  | '__/ _` | '_ \/ __|/ _ \/ __|
+| | | | | | (_| | |_) \__ \  __/ (__
+|_| |_|_|  \__,_| .__/|___/\___|\___|
+                | |
+                |_|""".strip("\n")
+
+
+def print_banner(console: Console | None = None) -> None:
+    console = console or Console()
+    body = Text(_LOGO, style="bold cyan")
+    body.append(f"\nFrappe/ERPNext security scanner  ·  v{__version__}", style="dim")
+    console.print(Panel(body, border_style="cyan", expand=False, padding=(0, 2)))
+
+
+def print_help(console: Console | None = None) -> None:
+    console = console or Console()
+    print_banner(console)
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="bold green")
+    table.add_column()
+    rows = [
+        ("frapsec scan bench <path>", "scan an entire bench (apps + sites config audit)"),
+        ("frapsec scan app <path>", "scan one app"),
+        ("frapsec scan site <path>", "scan one site's config only"),
+        ("frapsec permissions <app>", "dump the role -> DocType permission matrix"),
+        ("", ""),
+        ("--format text|json|sarif|html", "output format (default: text)"),
+        ("--diff <ref>", "PR mode: only files changed vs a git ref"),
+        ("--baseline <path>", "only show findings not already accepted"),
+        ("--update-baseline", "accept all current findings into --baseline"),
+        ("--no-semgrep", "skip the semgrep layer"),
+        ("--plain", "no colors/table even on a terminal"),
+    ]
+    for a, b in rows:
+        table.add_row(a, b)
+    console.print(table)
+    console.print("\n[dim]Full flag reference: frapsec scan --help[/dim]")
 
 
 def render(findings: list[Finding], console: Console | None = None) -> None:
