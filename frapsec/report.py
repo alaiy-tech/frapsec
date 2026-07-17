@@ -6,8 +6,20 @@ from collections import Counter
 from .model import Finding
 from .rules.catalog import PERMISSION_RIGHTS, SARIF_LEVEL, SEVERITY_COLORS
 
+_SEVERITY_ORDER = ("critical", "high", "medium", "low", "info")
+
+
+def sort_findings(findings: list[Finding]) -> list[Finding]:
+    """One merged list ordered by severity, regardless of which rule engine
+    (native AST rules, config audit, semgrep) produced each finding — every
+    output format calls this so semgrep results never land as a separate
+    unsorted block appended after everything else."""
+    return sorted(findings, key=lambda f: _SEVERITY_ORDER.index(f.severity)
+                  if f.severity in _SEVERITY_ORDER else len(_SEVERITY_ORDER))
+
 
 def to_text(findings: list[Finding]) -> str:
+    findings = sort_findings(findings)
     if not findings:
         return "No findings."
     lines = []
@@ -18,10 +30,11 @@ def to_text(findings: list[Finding]) -> str:
 
 
 def to_json(findings: list[Finding]) -> str:
-    return json.dumps([dataclasses.asdict(f) for f in findings], indent=2)
+    return json.dumps([dataclasses.asdict(f) for f in sort_findings(findings)], indent=2)
 
 
 def to_html(findings: list[Finding], title: str = "frapsec report") -> str:
+    findings = sort_findings(findings)
     from jinja2 import Environment, PackageLoader
     env = Environment(loader=PackageLoader("frapsec", "templates"), autoescape=True)
     return env.get_template("report.html").render(
@@ -52,6 +65,7 @@ def matrix_text(matrix: dict) -> str:
 
 
 def to_sarif(findings: list[Finding]) -> str:
+    findings = sort_findings(findings)
     return json.dumps({
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
         "version": "2.1.0",

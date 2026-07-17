@@ -1,2 +1,3 @@
 jinja2>=3.0
 rich>=13.0
+semgrep>=1.70

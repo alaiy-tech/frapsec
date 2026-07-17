@@ -11,3 +11,6 @@ rules:
   paths:
     exclude:
       - "**/test_*.py"
+      # packaging boilerplate reads its own requirements.txt at build time --
+      # never a runtime request handler, confirmed FP scanning a real connector
+      - "**/setup.py"

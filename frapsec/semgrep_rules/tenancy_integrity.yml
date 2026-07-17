@@ -93,8 +93,15 @@ rules:
         def $FUNC(...):
           ...
   paths:
+    # scoped to Frappe's actual pytest test-file layout (doctype tests,
+    # tests/ dirs) -- the original bare "**/test_*.py" also matched
+    # production API endpoints merely named test_*.py (e.g. a
+    # test_connection() health-check endpoint), a confirmed FP scanning a
+    # real connector app.
     include:
-      - "**/test_*.py"
+      - "**/doctype/*/test_*.py"
+      - "**/tests/test_*.py"
+      - "**/test/test_*.py"
       - "**/frappe/tests/ui_test_helpers.py"
   message: |
     Test endpoints should use @whitelist_for_tests() instead of @frappe.whitelist() to ensure they're only accessible in test mode.

@@ -11,6 +11,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .model import Finding
+from .report import sort_findings
 from .rules.catalog import SEVERITY_COLORS
 
 _ORDER = ("critical", "high", "medium", "low", "info")
@@ -18,6 +19,7 @@ _ORDER = ("critical", "high", "medium", "low", "info")
 
 def render(findings: list[Finding], console: Console | None = None) -> None:
     console = console or Console()
+    findings = sort_findings(findings)
     counts = Counter(f.severity for f in findings)
 
     summary = Text()
@@ -37,7 +39,7 @@ def render(findings: list[Finding], console: Console | None = None) -> None:
     table.add_column("Finding", ratio=3)
     table.add_column("Location", ratio=2, style="cyan", no_wrap=False, overflow="fold")
 
-    for f in sorted(findings, key=lambda f: _ORDER.index(f.severity) if f.severity in _ORDER else 9):
+    for f in findings:
         table.add_row(
             Text(f.severity.upper(), style=f"bold {SEVERITY_COLORS.get(f.severity, 'white')}"),
             f.rule_id,
