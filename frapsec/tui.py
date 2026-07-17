@@ -27,10 +27,10 @@ def print_banner(console: Console | None = None) -> None:
 
 
 _COMMANDS = [
-    ("frapsec scan bench <path>", "scan an entire bench (apps + sites config audit)"),
-    ("frapsec scan app <path>", "scan one app"),
-    ("frapsec scan site <path>", "scan one site's config only"),
-    ("frapsec permissions <app>", "dump the role -> DocType permission matrix"),
+    ("scan bench <path>", "scan an entire bench (apps + sites config audit)"),
+    ("scan app <path>", "scan one app"),
+    ("scan site <path>", "scan one site's config only"),
+    ("permissions <app>", "dump the role -> DocType permission matrix"),
 ]
 _OPTIONS = [
     ("--format text|json|sarif|html", "output format (default: text)"),
@@ -42,22 +42,26 @@ _OPTIONS = [
 ]
 
 
-def _section(title: str, rows: list[tuple[str, str]], color: str, console: Console) -> None:
-    console.print(f"[bold {color}]{title}[/bold {color}]")
-    table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_column(style=f"bold {color}")
-    table.add_column(style="white")
-    for a, b in rows:
-        table.add_row(a, b)
-    console.print(table)
-
-
 def print_help(console: Console | None = None) -> None:
     console = console or Console()
     print_banner(console)
-    _section("Commands", _COMMANDS, "green", console)
-    console.print()
-    _section("Options (scan)", _OPTIONS, "yellow", console)
+
+    console.print("[bold green]Commands[/bold green]")
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="bold cyan", no_wrap=True)   # "frapsec" -- the program name
+    table.add_column(style="bold green", no_wrap=True)  # the subcommand + args
+    table.add_column(style="white")                     # description
+    for cmd, desc in _COMMANDS:
+        table.add_row("frapsec", cmd, desc)
+    console.print(table)
+
+    console.print("\n[bold yellow]Options (scan)[/bold yellow]")
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="bold yellow")
+    table.add_column(style="white")
+    for flag, desc in _OPTIONS:
+        table.add_row(flag, desc)
+    console.print(table)
     console.print("\n[dim]Full flag reference: frapsec scan --help[/dim]")
 
 
