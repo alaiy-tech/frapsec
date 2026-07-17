@@ -29,12 +29,52 @@ def h():
     if not hmac.compare_digest(sig, frappe.request.headers.get("X-Sig", "")):
         return
 ''', "FRAP-API-001", "info"),
-    ("guest_plain", '''
+    ("guest_plain_no_args", '''
 import frappe
 @frappe.whitelist(allow_guest=True)
 def h():
     return "static"
+''', "FRAP-API-001", "info"),
+    ("guest_plain_with_args", '''
+import frappe
+@frappe.whitelist(allow_guest=True)
+def h(name):
+    return frappe.get_single("Settings").get(name)
 ''', "FRAP-API-001", "high"),
+    # FRAP-API-003
+    ("secret_returned", '''
+import frappe
+@frappe.whitelist()
+def h(connector_id):
+    doc = frappe.get_single("Settings")
+    return doc.get_password("api_key")
+''', "FRAP-API-003", True),
+    ("secret_not_returned", '''
+import frappe
+@frappe.whitelist()
+def h():
+    doc = frappe.get_single("Settings")
+    key = doc.get_password("api_key")
+    call_external_api(key)
+    return {"ok": True}
+''', "FRAP-API-003", False),
+    # FRAP-API-004
+    ("dynamic_dispatch_stored", '''
+import frappe
+@frappe.whitelist()
+def h(connector_id):
+    registry = frappe.get_doc("Registry", connector_id)
+    test_method = registry.test_method
+    fn = frappe.get_attr(test_method)
+    return fn()
+''', "FRAP-API-004", True),
+    ("dynamic_dispatch_hardcoded", '''
+import frappe
+@frappe.whitelist()
+def h():
+    fn = frappe.get_attr("myapp.tasks.run_check")
+    return fn()
+''', "FRAP-API-004", False),
     # FRAP-API-002
     ("db_no_check", '''
 import frappe

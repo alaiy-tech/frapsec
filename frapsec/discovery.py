@@ -82,6 +82,7 @@ def _find_endpoints(app_name: str, pkg_root: Path, py_file: Path) -> list[Endpoi
                 file=str(py_file), line=node.lineno,
                 allow_guest=info.get("allow_guest", False),
                 methods=info.get("methods", []),
+                args=[a.arg for a in node.args.args if a.arg not in ("self", "cls")],
             ))
     return out
 

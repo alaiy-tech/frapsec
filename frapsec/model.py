@@ -12,6 +12,7 @@ class Endpoint:
     line: int
     allow_guest: bool = False
     methods: list[str] = field(default_factory=list)
+    args: list[str] = field(default_factory=list)
 
 
 @dataclass

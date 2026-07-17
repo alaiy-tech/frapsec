@@ -27,6 +27,9 @@ SENSITIVE_HOOKS = {
 # scheduler job name fragments that suggest destructive scope
 DESTRUCTIVE_JOB_WORDS = ("delete", "cleanup", "purge", "remove", "truncate", "reset")
 
+# calls that decrypt/reveal a Password-fieldtype value
+SECRET_REVEAL_CALLS = ("get_password",)
+
 # ---- business.py ------------------------------------------------------------
 # calls that count as an existence check before insert (idempotency)
 IDEMPOTENCY_CHECKS = ("frappe.db.exists", "get_value", "get_all", "get_list", ".exists(")
