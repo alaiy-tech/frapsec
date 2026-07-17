@@ -1,7 +1,5 @@
 # frapsec — command usage
 
-5 commands. Each section: what it does, all flags, arguments, requirements, example, real output.
-
 ---
 
 ## `scan bench|app|site <path>`
