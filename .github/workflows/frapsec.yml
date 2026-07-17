@@ -1,16 +1,32 @@
-# Reusable scan workflow. Copy into a connector repo (or call via workflow_call)
-# and set APP_PATH to the app directory to scan.
+# Reusable scan workflow — this file lives in frapsec's own repo as the
+# canonical copy. It is NOT meant to run against frapsec itself (nothing
+# useful to scan here); it only fires when a connector repo calls it via
+# workflow_call. Copy this file into a connector repo's own .github/workflows/
+# and add push/pull_request triggers there, or reference it directly:
+#
+#   jobs:
+#     scan:
+#       uses: loyality7/frapsec/.github/workflows/frapsec.yml@main
+#       with:
+#         app_path: .
+#       secrets:
+#         frapsec_repo_token: ${{ secrets.FRAPSEC_REPO_TOKEN }}
+#
+# frapsec's repo is private, so installing it in another repo's CI needs a
+# token with read access to it -- a PAT (classic, `repo` scope) stored as
+# FRAPSEC_REPO_TOKEN in the CALLING repo's secrets. Make frapsec public
+# instead and this whole secret goes away.
 name: frapsec
 
 on:
-  pull_request: {}
-  push:
-    branches: [main]
   workflow_call:
     inputs:
       app_path:
         type: string
         default: "."
+    secrets:
+      frapsec_repo_token:
+        required: true
 
 env:
   APP_PATH: ${{ inputs.app_path || '.' }}
@@ -31,7 +47,7 @@ jobs:
       - name: Install frapsec + semgrep
         run: |
           pip install semgrep
-          pip install git+https://github.com/loyality7/frapsec.git  # adjust when repo is pushed
+          pip install "git+https://x-access-token:${{ secrets.frapsec_repo_token }}@github.com/loyality7/frapsec.git"
 
       - name: Scan
         run: frapsec scan app "$APP_PATH" --format sarif > frapsec.sarif
