@@ -3,7 +3,7 @@ import ast
 import json
 from pathlib import Path
 
-from .model import App, DocType, Endpoint
+from .model import App, DocType, Endpoint, Site
 
 
 def discover_bench(bench_path: str) -> list[App]:
@@ -12,6 +12,23 @@ def discover_bench(bench_path: str) -> list[App]:
     if not apps_dir.is_dir():
         raise SystemExit(f"not a bench: no apps/ under {bench_path}")
     return [discover_app(str(p)) for p in sorted(apps_dir.iterdir()) if p.is_dir()]
+
+
+def discover_sites(bench_path: str) -> list[Site]:
+    """sites/*/site_config.json, each merged over common_site_config.json."""
+    sites_dir = Path(bench_path) / "sites"
+    common = _load_json(sites_dir / "common_site_config.json")
+    out = []
+    for cfg in sorted(sites_dir.glob("*/site_config.json")):
+        out.append(Site(name=cfg.parent.name, file=str(cfg), config={**common, **_load_json(cfg)}))
+    return out
+
+
+def _load_json(p: Path) -> dict:
+    try:
+        return json.loads(p.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 def discover_app(app_path: str) -> App:

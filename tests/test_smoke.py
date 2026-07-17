@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from frapsec import discovery  # noqa: E402
 from frapsec.rules import run_all  # noqa: E402
+from frapsec.rules.config import run_config  # noqa: E402
 
 API_PY = '''
 import frappe
@@ -59,6 +60,18 @@ def test():
         assert app.hooks["app_name"] == "myapp"
         assert {e.name for e in app.endpoints} == {"public_thing", "unsafe_update", "safe_read"}
         assert [d.name for d in app.doctypes] == ["Leaky Thing"]
+
+        # fake bench site
+        site_dir = Path(tmp) / "sites" / "site1.local"
+        site_dir.mkdir(parents=True)
+        (Path(tmp) / "sites" / "common_site_config.json").write_text('{"allow_cors": "*"}')
+        (site_dir / "site_config.json").write_text(json.dumps(
+            {"developer_mode": 1, "admin_password": "x", "db_password": "admin"}))
+        sites = discovery.discover_sites(tmp)
+        assert [s.name for s in sites] == ["site1.local"]
+        conf_rules = {f.rule_id for f in run_config(sites)}
+        assert {"FRAP-CONF-001", "FRAP-CONF-002", "FRAP-CONF-003",
+                "FRAP-CONF-004", "FRAP-CONF-005"} <= conf_rules, conf_rules
 
         rules = {f.rule_id for f in run_all(apps)}
         assert "FRAP-API-001" in rules, "guest API not flagged"

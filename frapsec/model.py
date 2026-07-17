@@ -33,6 +33,13 @@ class App:
 
 
 @dataclass
+class Site:
+    name: str
+    file: str            # site_config.json path
+    config: dict = field(default_factory=dict)   # merged: common_site_config + site_config
+
+
+@dataclass
 class Finding:
     rule_id: str
     severity: str        # critical | high | medium | low | info
