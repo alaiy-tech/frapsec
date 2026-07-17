@@ -22,6 +22,10 @@ _PLACEHOLDER = re.compile(
 def _looks_real(val: str) -> bool:
     if _PLACEHOLDER.match(val):
         return False
+    # plain snake_case/dotted word = an identifier (redis key, config key), not a secret.
+    # Real secrets have digits/mixed case/symbols. (frappe-core triage: socketio_auth_secret)
+    if re.fullmatch(r"[a-z_.\- ]+", val):
+        return False
     # lookups, env reads, format strings are code, not literals worth flagging
     if any(t in val for t in ("os.environ", "get_password", "frappe.conf", "%s", "{}")):
         return False

@@ -107,7 +107,7 @@ def _parse_doctype(app_name: str, json_file: Path) -> DocType | None:
         data = json.loads(json_file.read_text(encoding="utf-8", errors="replace"))
     except (json.JSONDecodeError, OSError):
         return None
-    if data.get("doctype") != "DocType":
+    if not isinstance(data, dict) or data.get("doctype") != "DocType":
         return None
     return DocType(
         app=app_name, name=data.get("name", json_file.stem), file=str(json_file),

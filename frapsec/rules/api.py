@@ -26,11 +26,18 @@ def guest_api(app: App) -> list[Finding]:
         # helper reads as "no verification". Follow calls one level when that FP shows up.
         reads_request = "frappe.request" in src or "form_dict" in src
         verifies = "compare_digest" in src or "hmac.new" in src
+        # critical needs consequence: guest handler that WRITES from unverified input.
+        # Auth-shaped endpoints (login/oauth) read request data legitimately (frappe-core triage).
+        writes = any(w in src for w in (".insert(", ".save(", ".delete(", "delete_doc",
+                                        "set_value", ".submit(", "enqueue("))
         if reads_request and verifies:
             sev, msg = "info", "Guest webhook endpoint with HMAC verification"
+        elif reads_request and writes:
+            sev, msg = "critical", ("Guest endpoint writes documents from request data with NO "
+                                    "signature verification — anyone on the internet can drive it")
         elif reads_request:
-            sev, msg = "critical", ("Guest endpoint reads request data with NO signature "
-                                    "verification — anyone on the internet can drive it")
+            sev, msg = "high", ("Guest endpoint reads request data without signature verification — "
+                                "fine for auth/login flows, review anything else")
         else:
             sev, msg = "high", ("Guest-accessible API — verify it exposes nothing sensitive "
                                 "and validates all input")
