@@ -1,6 +1,8 @@
 """Output: terminal text, JSON, SARIF."""
 import dataclasses
+import html
 import json
+from collections import Counter
 
 from .model import Finding
 
@@ -19,6 +21,35 @@ def to_text(findings: list[Finding]) -> str:
 
 def to_json(findings: list[Finding]) -> str:
     return json.dumps([dataclasses.asdict(f) for f in findings], indent=2)
+
+
+_COLORS = {"critical": "#d32f2f", "high": "#f57c00", "medium": "#fbc02d", "low": "#7cb342", "info": "#90a4ae"}
+
+
+def to_html(findings: list[Finding], title: str = "frapsec report") -> str:
+    counts = Counter(f.severity for f in findings)
+    badges = "".join(
+        f'<span class="badge" style="background:{_COLORS[s]}">{s} {counts[s]}</span>'
+        for s in _COLORS if counts.get(s))
+    rows = "".join(
+        f'<tr><td><span class="badge" style="background:{_COLORS.get(f.severity, "#999")}">{f.severity}</span></td>'
+        f'<td><code>{html.escape(f.rule_id)}</code></td>'
+        f'<td>{html.escape(f.message)}</td>'
+        f'<td><code>{html.escape(f.file)}:{f.line}</code></td></tr>'
+        for f in findings)
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>{html.escape(title)}</title>
+<style>
+body{{font-family:system-ui,sans-serif;margin:2rem;color:#222}}
+table{{border-collapse:collapse;width:100%;margin-top:1rem}}
+td,th{{border:1px solid #ddd;padding:.5rem;text-align:left;vertical-align:top;font-size:.9rem}}
+th{{background:#f5f5f5}}
+.badge{{color:#fff;border-radius:4px;padding:.1rem .5rem;font-size:.8rem;white-space:nowrap}}
+code{{font-size:.85rem}}
+</style></head><body>
+<h1>{html.escape(title)}</h1>
+<p>{badges or "No findings."}</p>
+<table><tr><th>Severity</th><th>Rule</th><th>Finding</th><th>Location</th></tr>{rows}</table>
+</body></html>"""
 
 
 _RIGHTS = ("read", "write", "create", "delete", "submit", "cancel", "amend", "report", "export", "share", "email", "print")
