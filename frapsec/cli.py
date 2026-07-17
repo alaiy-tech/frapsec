@@ -65,11 +65,23 @@ def main(argv=None):
                      "(use a disposable/low-privilege API key, never Administrator)")
         import dataclasses
         from . import dynamic
+        interactive = args.format == "text" and sys.stdout.isatty()
+        console = None
+        if interactive:
+            from rich.console import Console
+            from .tui import print_banner
+            console = Console()
+            print_banner(console, mode="dynamic")
+
         raw = json.loads(Path(args.findings_json).read_text())
         findings = [Finding(**{k: v for k, v in row.items() if k in _FINDING_FIELDS}) for row in raw]
         dynamic.verify(findings, args.site, args.api_key, args.api_secret)
+
         if args.format == "json":
             print(json.dumps([dataclasses.asdict(f) for f in findings], indent=2))
+        elif interactive:
+            from .tui import render_verify
+            render_verify(findings, console)
         else:
             for f in findings:
                 if f.endpoint:
@@ -82,7 +94,7 @@ def main(argv=None):
         from rich.console import Console
         from .tui import print_banner
         console = Console()
-        print_banner(console)
+        print_banner(console, mode="static")
 
     def spin(message: str):
         from .tui import status

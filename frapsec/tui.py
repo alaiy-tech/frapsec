@@ -19,18 +19,30 @@ from .rules.catalog import SEVERITY_COLORS
 _ORDER = ("critical", "high", "medium", "low", "info")
 
 
-def print_banner(console: Console | None = None) -> None:
+# mode -> (label color, one-line meaning shown under the banner)
+_MODES = {
+    "static": ("green", "reads source only, never executes or contacts anything"),
+    "dynamic": ("red", "makes REAL network calls to --site with real credentials"),
+}
+
+
+def print_banner(console: Console | None = None, mode: str = "static") -> None:
     console = console or Console()
+    color, meaning = _MODES[mode]
     body = Text(" F R A P S E C", style="bold cyan")
     body.append(f"\nFrappe/ERPNext security scanner  ·  v{__version__}", style="dim")
+    body.append(f"\nMode: ", style="dim")
+    body.append(mode.upper(), style=f"bold white on {color}")
+    body.append(f"  ({meaning})", style="dim")
     console.print(Panel(body, border_style="cyan", expand=False, padding=(0, 2)))
 
 
 _COMMANDS = [
-    ("scan bench <path>", "scan an entire bench (apps + sites config audit)"),
-    ("scan app <path>", "scan one app"),
-    ("scan site <path>", "scan one site's config only"),
-    ("permissions <app>", "dump the role -> DocType permission matrix"),
+    ("scan bench <path>", "[static]  scan an entire bench (apps + sites config audit)"),
+    ("scan app <path>", "[static]  scan one app"),
+    ("scan site <path>", "[static]  scan one site's config only"),
+    ("permissions <app>", "[static]  dump the role -> DocType permission matrix"),
+    ("verify <findings.json>", "[dynamic] confirm static findings against a REAL site"),
 ]
 _OPTIONS = [
     ("--format text|json|sarif|html", "output format (default: text)"),
@@ -96,6 +108,45 @@ def render(findings: list[Finding], console: Console | None = None) -> None:
         )
     console.print(table)
     console.print(f"\n[bold]{len(findings)}[/bold] finding(s).")
+
+
+# verified status -> color. "reachable" is the alarming one (a static
+# high/critical just got LIVE-CONFIRMED) so it gets red; "blocked" means
+# the role genuinely can't call it, the opposite of alarming.
+_VERIFY_COLORS = {"reachable": "red", "blocked": "green", "error": "yellow"}
+
+
+def render_verify(findings: list[Finding], console: Console | None = None) -> None:
+    console = console or Console()
+    checked = [f for f in findings if f.endpoint]
+    counts = Counter(f.verified for f in checked)
+
+    summary = Text()
+    for status_, color in _VERIFY_COLORS.items():
+        if not counts.get(status_):
+            continue
+        summary.append(f" {status_.upper()} {counts[status_]} ", style=f"bold white on {color}")
+        summary.append(" ")
+    console.print(summary if checked else Text("No endpoint-tagged findings to verify.", style="dim"))
+    if not checked:
+        return
+    console.print()
+
+    table = Table(show_lines=False, expand=True, pad_edge=False)
+    table.add_column("Result", width=10, no_wrap=True)
+    table.add_column("Rule", width=14, no_wrap=True, style="dim")
+    table.add_column("Was", width=8, no_wrap=True, style="dim")
+    table.add_column("Endpoint", ratio=1, style="cyan", overflow="fold")
+
+    for f in sorted(checked, key=lambda f: list(_VERIFY_COLORS).index(f.verified.split(":")[0])
+                     if f.verified.split(":")[0] in _VERIFY_COLORS else 9):
+        base = f.verified.split(":")[0]
+        table.add_row(
+            Text(f.verified.upper(), style=f"bold {_VERIFY_COLORS.get(base, 'white')}"),
+            f.rule_id, f.severity, f.endpoint,
+        )
+    console.print(table)
+    console.print(f"\n[bold]{len(checked)}[/bold] endpoint(s) checked.")
 
 
 def status(message: str, console: Console | None = None):
