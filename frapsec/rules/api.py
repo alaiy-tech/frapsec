@@ -10,15 +10,35 @@ PERM_CALLS = {"has_permission", "check_permission", "only_for", "throw_if_not_pe
 
 @rule
 def guest_api(app: App) -> list[Finding]:
-    return [
-        Finding(
-            rule_id="FRAP-API-001", severity="high", app=app.name,
-            message=f"Guest-accessible API: {ep.module}.{ep.name} (allow_guest=True). "
-                    "Verify it exposes nothing sensitive and validates all input.",
-            file=ep.file, line=ep.line,
-        )
-        for ep in app.endpoints if ep.allow_guest
-    ]
+    """Guest endpoints, graded by whether they verify a signature.
+
+    - reads request body/headers AND verifies HMAC -> info (webhook done right)
+    - reads request body/headers, no HMAC verification -> critical (unauthenticated writer)
+    - anything else guest-accessible -> high (manual review)
+    """
+    findings = []
+    for ep in app.endpoints:
+        if not ep.allow_guest:
+            continue
+        body = _function_source(ep.file, ep.line)
+        src = ast.unparse(body) if body else ""
+        # ponytail: string-match on the handler body only — HMAC done in a called
+        # helper reads as "no verification". Follow calls one level when that FP shows up.
+        reads_request = "frappe.request" in src or "form_dict" in src
+        verifies = "compare_digest" in src or "hmac.new" in src
+        if reads_request and verifies:
+            sev, msg = "info", "Guest webhook endpoint with HMAC verification"
+        elif reads_request:
+            sev, msg = "critical", ("Guest endpoint reads request data with NO signature "
+                                    "verification — anyone on the internet can drive it")
+        else:
+            sev, msg = "high", ("Guest-accessible API — verify it exposes nothing sensitive "
+                                "and validates all input")
+        findings.append(Finding(
+            rule_id="FRAP-API-001", severity=sev, app=app.name,
+            message=f"{msg}: {ep.module}.{ep.name}", file=ep.file, line=ep.line,
+        ))
+    return findings
 
 
 @rule

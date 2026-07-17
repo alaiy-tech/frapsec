@@ -1,0 +1,104 @@
+# Security/integrity subset of frappe/semgrep-rules frappe_correctness.yml (MIT, Frappe Technologies)
+rules:
+- id: frapsec-breaks-multitenancy
+  patterns:
+    - pattern-either:
+      - pattern: $VAR = <... frappe.db.$METHOD(...) ...>
+      - pattern: $VAR = <... frappe.get_all(...) ...>
+      - pattern: $VAR = <... frappe.get_list(...) ...>
+      - pattern: $VAR = <... frappe.get_doc(...) ...>
+      - pattern: $VAR = <... frappe.get_single(...) ...>
+      - pattern: $VAR = <... frappe.get_cached_doc(...) ...>
+      - pattern: $VAR = <... frappe.cache(...) ...>
+      - pattern: $VAR = <... frappe.cache ...>
+      - pattern: $VAR = <... frappe.get_meta(...) ...>
+      - pattern: $VAR = <... frappe.get_hooks(...) ...>
+      - pattern: $VAR = <... frappe.local.$ATTR ...>
+      - pattern: $VAR = <... frappe.conf ...>
+      - pattern: $VAR = <... frappe.flags ...>
+      - pattern: $VAR = <... frappe.lang ...>
+      - pattern: $VAR = <... frappe._(...) ...>
+      - pattern: $VAR = <... flt(...) ...>
+      - pattern: $VAR = <... frappe.qb ...>
+    - pattern-not-inside: |
+        def $FUNCTION(...):
+          ...
+  paths:
+    exclude:
+      - "**/test_*.py"
+  message: |
+    $VAR global variable does not respect database multitenancy, consider wrapping it in function or method call.
+  languages: [python]
+  severity: ERROR
+- id: frapsec-cache-breaks-multitenancy
+  patterns:
+    - pattern-either:
+      - pattern: frappe.cache().set(...)
+      - pattern: |
+          $VAR = frappe.cache()
+          $VAR.set(...)
+      - pattern: frappe.cache().get(...)
+      - pattern: |
+          $VAR = frappe.cache()
+          $VAR.get(...)
+      - pattern: frappe.cache.set(...)
+      - pattern: frappe.cache.get(...)
+  message: |
+    redis.set and redis.get do not support multitenancy, use set_value/get_value instead.
+  languages: [python]
+  severity: ERROR
+- id: frapsec-manual-commit
+  patterns:
+    - pattern: frappe.db.commit()
+    - pattern-not-inside: |
+        try:
+          ...
+        except ...:
+          ...
+  message: |
+    Manually commiting a transaction is highly discouraged. Read about the transaction model implemented by Frappe Framework before adding manual commits: https://frappeframework.com/docs/user/en/api/database#database-transaction-model If you think manual commit is required then add a comment explaining why and `# nosemgrep` on the same line.
+  paths:
+      exclude:
+        - "**/patches/**"
+        - "**/demo/**"
+  languages: [python]
+  severity: WARNING
+- id: frapsec-redis-flush
+  patterns:
+    - pattern-either:
+      - pattern: frappe.cache.flushall()
+      - pattern: frappe.cache().flushall()
+  message: |
+    flushall flushes all databases on Redis server, use flushdb instead.
+  languages: [python]
+  severity: ERROR
+- id: frapsec-overriding-local-proxies
+  patterns:
+    - pattern: frappe.$ATTR = ...
+    - metavariable-regex:
+        metavariable: $ATTR
+        regex: ^(db|qb|conf|form|form_dict|request|response|session|user|flags|error_log|debug_log|message_log|lang)$
+  message: |
+    frappe.$ATTR is a local proxy, assigning it to another object will remove the proxying and replace it with another object. Use frappe.local.$ATTR instead.
+  languages: [python]
+  severity: ERROR
+- id: frapsec-test-whitelist-missing-protection
+  patterns:
+    - pattern: |
+        @frappe.whitelist(...)
+        def $FUNC(...):
+          ...
+    - pattern-not: |
+        @$ANYTHING.whitelist_for_tests(...)
+        def $FUNC(...):
+          ...
+  paths:
+    include:
+      - "**/test_*.py"
+      - "**/frappe/tests/ui_test_helpers.py"
+  message: |
+    Test endpoints should use @whitelist_for_tests() instead of @frappe.whitelist() to ensure they're only accessible in test mode.
+  languages: [python]
+  severity: ERROR
+  fix: |
+    @whitelist_for_tests(...)
