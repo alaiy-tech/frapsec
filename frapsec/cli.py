@@ -1,4 +1,5 @@
 import argparse
+import contextlib
 import json
 import sys
 from pathlib import Path
@@ -26,6 +27,8 @@ def main(argv=None):
                       help="only report findings not already accepted in this baseline file")
     scan.add_argument("--update-baseline", action="store_true",
                       help="write all current findings to --baseline as accepted, then exit")
+    scan.add_argument("--plain", action="store_true",
+                      help="plain text output even on a terminal (no colors/table)")
     perms = sub.add_parser("permissions", help="dump role -> DocType permission matrix")
     perms.add_argument("path", help="app path")
     perms.add_argument("--format", choices=["text", "json"], default="text")
@@ -37,20 +40,33 @@ def main(argv=None):
         print(json.dumps(matrix, indent=2) if args.format == "json" else report.matrix_text(matrix))
         return
 
-    apps, sites = [], []
-    if args.target_type == "bench":
-        apps = discovery.discover_bench(args.path)
-        sites = discovery.discover_sites(args.path)
-    elif args.target_type == "app":
-        apps = [discovery.discover_app(args.path)]
-    else:  # site: path to sites/<name> dir
-        site_dir = Path(args.path)
-        sites = [s for s in discovery.discover_sites(str(site_dir.parent.parent)) if s.name == site_dir.name]
+    interactive = args.format == "text" and not args.plain and sys.stdout.isatty()
+    console = None
+    if interactive:
+        from rich.console import Console
+        console = Console()
 
-    findings = run_all(apps) + run_config(sites)
+    def spin(message: str):
+        from .tui import status
+        return status(message, console) if interactive else _noop()
+
+    with spin("Discovering apps, sites, DocTypes, endpoints..."):
+        apps, sites = [], []
+        if args.target_type == "bench":
+            apps = discovery.discover_bench(args.path)
+            sites = discovery.discover_sites(args.path)
+        elif args.target_type == "app":
+            apps = [discovery.discover_app(args.path)]
+        else:  # site: path to sites/<name> dir
+            site_dir = Path(args.path)
+            sites = [s for s in discovery.discover_sites(str(site_dir.parent.parent)) if s.name == site_dir.name]
+
+    with spin("Running rules..."):
+        findings = run_all(apps) + run_config(sites)
     if not args.no_semgrep:
         from . import semgrep
-        findings += semgrep.run(args.semgrep_rules, args.path)
+        with spin("Running semgrep..."):
+            findings += semgrep.run(args.semgrep_rules, args.path)
     if args.diff:
         import subprocess
         changed = subprocess.run(
@@ -71,10 +87,19 @@ def main(argv=None):
         from . import baseline
         findings = baseline.filter_new(findings, baseline.load(args.baseline))
 
-    fmt = {"text": report.to_text, "json": report.to_json,
-           "sarif": report.to_sarif, "html": report.to_html}[args.format]
-    print(fmt(findings))
+    if interactive:
+        from .tui import render
+        render(findings, console)
+    else:
+        fmt = {"text": report.to_text, "json": report.to_json,
+               "sarif": report.to_sarif, "html": report.to_html}[args.format]
+        print(fmt(findings))
     sys.exit(1 if any(f.severity in ("critical", "high") for f in findings) else 0)
+
+
+@contextlib.contextmanager
+def _noop():
+    yield
 
 
 if __name__ == "__main__":
