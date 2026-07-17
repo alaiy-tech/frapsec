@@ -3,7 +3,7 @@ name = "frapsec"
 version = "0.1.0"
 description = "Framework-aware security scanner for Frappe/ERPNext benches"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["jinja2>=3.0"]
 
 [project.scripts]
 frapsec = "frapsec.cli:main"
@@ -16,4 +16,4 @@ build-backend = "setuptools.build_meta"
 include = ["frapsec*"]
 
 [tool.setuptools.package-data]
-frapsec = ["semgrep_rules/*"]
+frapsec = ["semgrep_rules/*", "templates/*"]
