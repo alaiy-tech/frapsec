@@ -104,6 +104,14 @@ def public_entry():
 def elevate():
     frappe.set_user("Administrator")
 ''', "FRAP-BIZ-001", "high"),
+    ("set_admin_reachable_via_enqueue", '''
+import frappe
+@frappe.whitelist(allow_guest=True)
+def handle_webhook():
+    frappe.enqueue("myapp.jobs.elevate_and_process")
+def elevate_and_process():
+    frappe.set_user("Administrator")
+''', "FRAP-BIZ-001", "high"),
     ("set_other", '''
 import frappe
 def job(u):
