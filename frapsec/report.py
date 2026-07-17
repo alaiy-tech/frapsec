@@ -5,7 +5,7 @@ import json
 from collections import Counter
 
 from .model import Finding
-from .rules.catalog import PERMISSIONPERMISSION_RIGHTS, SARIF_LEVEL, SEVERITYSEVERITY_COLORS
+from .rules.catalog import PERMISSION_RIGHTS, SARIF_LEVEL, SEVERITY_COLORS
 
 
 def to_text(findings: list[Finding]) -> str:
