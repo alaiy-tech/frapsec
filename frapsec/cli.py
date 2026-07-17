@@ -20,6 +20,8 @@ def main(argv=None):
                       help="semgrep rules dir (default: bundled frapsec rules); "
                            "requires semgrep on PATH, skipped if absent")
     scan.add_argument("--no-semgrep", action="store_true", help="skip the semgrep layer")
+    scan.add_argument("--diff", metavar="REF",
+                      help="only report findings in files changed vs git REF (PR mode)")
     perms = sub.add_parser("permissions", help="dump role -> DocType permission matrix")
     perms.add_argument("path", help="app path")
     perms.add_argument("--format", choices=["text", "json"], default="text")
@@ -45,6 +47,15 @@ def main(argv=None):
     if not args.no_semgrep:
         from . import semgrep
         findings += semgrep.run(args.semgrep_rules, args.path)
+    if args.diff:
+        import subprocess
+        changed = subprocess.run(
+            ["git", "-C", args.path, "diff", "--name-only", args.diff],
+            capture_output=True, text=True, check=True,
+        ).stdout.splitlines()
+        changed = {str((Path(args.path) / c).resolve()) for c in changed}
+        findings = [f for f in findings if str(Path(f.file).resolve()) in changed]
+
     fmt = {"text": report.to_text, "json": report.to_json, "sarif": report.to_sarif}[args.format]
     print(fmt(findings))
     sys.exit(1 if any(f.severity in ("critical", "high") for f in findings) else 0)
