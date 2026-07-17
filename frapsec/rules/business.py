@@ -23,19 +23,43 @@ def _iter_functions(app: App):
                 yield py, node
 
 
+def _restores_user_in_finally(fn: ast.AST) -> bool:
+    """True if a try/finally in fn calls set_user with a non-literal (variable) arg —
+    evidence of "elevate, then restore the original user" rather than a permanent switch.
+    """
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Try) or not node.finalbody:
+            continue
+        for stmt in node.finalbody:
+            for call in ast.walk(stmt):
+                if (isinstance(call, ast.Call) and ast.unparse(call.func).endswith("set_user")
+                        and call.args and not isinstance(call.args[0], ast.Constant)):
+                    return True
+    return False
+
+
 @rule
 def admin_impersonation(app: App) -> list[Finding]:
-    """frappe.set_user('Administrator') — privilege escalation if reachable from user input."""
+    """frappe.set_user('Administrator') — privilege escalation if reachable from user input.
+
+    Downgraded to medium when the call sits in a try/finally that restores the
+    original user (scoped elevation, not a permanent switch) — still worth a
+    human glance for reachability, just not the loudest tier.
+    """
     findings = []
     for py, fn in _iter_functions(app):
         for node in ast.walk(fn):
             if (isinstance(node, ast.Call) and ast.unparse(node.func).endswith("set_user")
                     and node.args and isinstance(node.args[0], ast.Constant)
                     and node.args[0].value == "Administrator"):
+                scoped = _restores_user_in_finally(fn)
                 findings.append(Finding(
-                    rule_id="FRAP-BIZ-001", severity="high", app=app.name,
-                    message=f"{fn.name}() switches session to Administrator — everything after runs "
-                            "with full privileges; verify it can't be reached with attacker-controlled input",
+                    rule_id="FRAP-BIZ-001", severity="medium" if scoped else "high", app=app.name,
+                    message=f"{fn.name}() switches session to Administrator" +
+                            (" inside a try/finally that restores the original user (scoped) — "
+                             "still verify the caller path is properly authenticated" if scoped else
+                             " — everything after runs with full privileges; verify it can't be "
+                             "reached with attacker-controlled input"),
                     file=str(py), line=node.lineno,
                 ))
     return findings

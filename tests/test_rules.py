@@ -94,12 +94,22 @@ def h(name):
 import frappe
 def job():
     frappe.set_user("Administrator")
-''', "FRAP-BIZ-001", True),
+''', "FRAP-BIZ-001", "high"),
     ("set_other", '''
 import frappe
 def job(u):
     frappe.set_user(u)
 ''', "FRAP-BIZ-001", False),
+    ("set_admin_scoped_restore", '''
+import frappe
+def job():
+    original_user = frappe.session.user
+    frappe.set_user("Administrator")
+    try:
+        do_thing()
+    finally:
+        frappe.set_user(original_user)
+''', "FRAP-BIZ-001", "medium"),
     # FRAP-BIZ-002 grading
     ("ign_perm_endpoint", '''
 import frappe
