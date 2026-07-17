@@ -40,7 +40,7 @@ def admin_impersonation(app: App) -> list[Finding]:
                     and node.args and isinstance(node.args[0], ast.Constant)
                     and node.args[0].value == "Administrator"):
                 scoped = _restores_user_in_finally(fn)
-                is_reachable = fn.name in reachable
+                is_reachable = reachable.contains(str(py), fn.name)
                 if not is_reachable:
                     sev, note = "info", " — not reachable from any whitelisted endpoint (background/install code)"
                 elif scoped:
@@ -73,7 +73,7 @@ def ignore_permissions(app: App) -> list[Finding]:
             if any(kw.arg == "ignore_permissions" and isinstance(kw.value, ast.Constant)
                    and kw.value.value for kw in node.keywords):
                 whitelisted = any("whitelist" in ast.unparse(d) for d in fn.decorator_list)
-                is_reachable = whitelisted or fn.name in reachable
+                is_reachable = whitelisted or reachable.contains(str(py), fn.name)
                 if whitelisted:
                     tag, note = "[whitelisted endpoint]", ""
                 elif is_reachable:

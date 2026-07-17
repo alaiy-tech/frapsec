@@ -108,7 +108,7 @@ def elevate():
 import frappe
 @frappe.whitelist(allow_guest=True)
 def handle_webhook():
-    frappe.enqueue("myapp.jobs.elevate_and_process")
+    frappe.enqueue("code.elevate_and_process")
 def elevate_and_process():
     frappe.set_user("Administrator")
 ''', "FRAP-BIZ-001", "high"),
