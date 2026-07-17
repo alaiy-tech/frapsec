@@ -17,18 +17,31 @@ low-privilege API key, never Administrator credentials.
 """
 import requests
 
-from .client import call_endpoint
+from .client import call_endpoint, login
 from ..model import Finding
 
 
-def verify(findings: list[Finding], site_url: str, api_key: str, api_secret: str) -> list[Finding]:
+def verify(findings: list[Finding], site_url: str, *,
+           api_key: str = "", api_secret: str = "", username: str = "", password: str = "") -> list[Finding]:
     """Mutates and returns `findings`: each one with an `endpoint` gets
     `.verified` set to "reachable", "blocked", or "error" — see
     client.call_endpoint. Findings with no `endpoint` (non-API rules) are
     left untouched. One request per distinct endpoint, however many
-    findings reference it."""
+    findings reference it.
+
+    Auth: pass either (api_key, api_secret) or (username, password) — not
+    both. Whichever role that account has is the role every "reachable"
+    result reflects, so use the LOWEST-privilege account the finding needs
+    to test, never Administrator (which can reach everything, making every
+    result "reachable" and telling you nothing about who else could).
+    """
     session = requests.Session()
-    session.headers["Authorization"] = f"token {api_key}:{api_secret}"
+    if api_key and api_secret:
+        session.headers["Authorization"] = f"token {api_key}:{api_secret}"
+    elif username and password:
+        login(session, site_url, username, password)
+    else:
+        raise ValueError("verify() needs either (api_key, api_secret) or (username, password)")
 
     cache: dict[str, str] = {}
     for f in findings:

@@ -38,7 +38,7 @@ def test():
                     endpoint="app.api.unknown_method"),
             Finding(rule_id="FRAP-HOOK-001", severity="medium", message="m", file="x"),  # no endpoint
         ]
-        dynamic.verify(findings, f"http://127.0.0.1:{port}", "key", "secret")
+        dynamic.verify(findings, f"http://127.0.0.1:{port}", api_key="key", api_secret="secret")
         assert findings[0].verified == "reachable"
         assert findings[1].verified == "blocked"
         assert findings[2].verified.startswith("error")

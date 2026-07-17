@@ -1,7 +1,18 @@
-"""The one function in frapsec that makes an HTTP call to a live site."""
+"""The one module in frapsec that makes HTTP calls to a live site."""
 import requests
 
 _TIMEOUT = 15
+
+
+def login(session: requests.Session, site_url: str, usr: str, pwd: str) -> None:
+    """Session-cookie auth via Frappe's own /api/method/login, for callers
+    who have a username/password rather than an API key/secret pair. Raises
+    on failure so the caller doesn't silently "verify" with no session.
+    """
+    url = f"{site_url.rstrip('/')}/api/method/login"
+    resp = session.post(url, data={"usr": usr, "pwd": pwd}, timeout=_TIMEOUT)
+    if resp.status_code != 200:
+        raise RuntimeError(f"login failed: HTTP {resp.status_code} — {resp.text[:200]}")
 
 
 def call_endpoint(session: requests.Session, site_url: str, endpoint: str) -> str:

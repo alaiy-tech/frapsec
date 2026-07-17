@@ -45,11 +45,16 @@ def main(argv=None):
     verify = sub.add_parser("verify", help="confirm static findings against a REAL site (dynamic mode)")
     verify.add_argument("findings_json", help="JSON output from a prior `frapsec scan --format json` run")
     verify.add_argument("--site", required=True, metavar="URL", help="e.g. https://staging.example.com")
-    verify.add_argument("--api-key", required=True)
-    verify.add_argument("--api-secret", required=True)
+    verify.add_argument("--api-key", default="", help="or set FRAPSEC_API_KEY -- never type a real secret "
+                                                        "as a plain CLI arg (shows up in shell history/ps)")
+    verify.add_argument("--api-secret", default="", help="or set FRAPSEC_API_SECRET")
+    verify.add_argument("--username", default="", help="alternative to --api-key/--api-secret; or set FRAPSEC_USERNAME")
+    verify.add_argument("--password", default="", help="or set FRAPSEC_PASSWORD")
     verify.add_argument("--confirm", action="store_true",
                         help="required: this makes real network calls to --site with the given "
-                             "credentials. Use a disposable/low-privilege API key, never Administrator.")
+                             "credentials. Use a disposable/low-privilege account, never Administrator "
+                             "-- Administrator can reach everything, so every result comes back "
+                             "'reachable' and tells you nothing about who else could.")
     verify.add_argument("--format", choices=["text", "json"], default="text")
     args = p.parse_args(argv)
 
@@ -62,7 +67,21 @@ def main(argv=None):
     if args.cmd == "verify":
         if not args.confirm:
             p.error("verify makes real network calls to --site -- pass --confirm to proceed "
-                     "(use a disposable/low-privilege API key, never Administrator)")
+                     "(use a disposable/low-privilege account, never Administrator)")
+        import os
+        api_key = args.api_key or os.environ.get("FRAPSEC_API_KEY", "")
+        api_secret = args.api_secret or os.environ.get("FRAPSEC_API_SECRET", "")
+        username = args.username or os.environ.get("FRAPSEC_USERNAME", "")
+        password = args.password or os.environ.get("FRAPSEC_PASSWORD", "")
+        if not ((api_key and api_secret) or (username and password)):
+            p.error("verify needs credentials: --api-key/--api-secret or --username/--password "
+                     "(or the FRAPSEC_API_KEY/FRAPSEC_API_SECRET/FRAPSEC_USERNAME/FRAPSEC_PASSWORD "
+                     "env vars, so you never have to type a secret as a plain CLI arg)")
+        if username.lower() == "administrator":
+            p.error("refusing to verify as Administrator -- it can reach everything, so every result "
+                     "comes back 'reachable' and tells you nothing about who else could. Create a "
+                     "disposable low-privilege user for this instead.")
+
         import dataclasses
         from . import dynamic
         interactive = args.format == "text" and sys.stdout.isatty()
@@ -75,7 +94,8 @@ def main(argv=None):
 
         raw = json.loads(Path(args.findings_json).read_text())
         findings = [Finding(**{k: v for k, v in row.items() if k in _FINDING_FIELDS}) for row in raw]
-        dynamic.verify(findings, args.site, args.api_key, args.api_secret)
+        dynamic.verify(findings, args.site, api_key=api_key, api_secret=api_secret,
+                        username=username, password=password)
 
         if args.format == "json":
             print(json.dumps([dataclasses.asdict(f) for f in findings], indent=2))
