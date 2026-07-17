@@ -48,3 +48,6 @@ class Finding:
     file: str
     line: int = 1
     app: str = ""
+    endpoint: str = ""    # dotted "module.function" -- set only by API rules;
+                          # lets `frapsec verify` call the real endpoint later
+    verified: str = ""    # "" until `frapsec verify` runs; then reachable | blocked | error

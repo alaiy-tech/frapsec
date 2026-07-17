@@ -45,6 +45,7 @@ def guest_api(app: App) -> list[Finding]:
         findings.append(Finding(
             rule_id="FRAP-API-001", severity=sev, app=app.name,
             message=f"{msg}: {ep.module}.{ep.name}", file=ep.file, line=ep.line,
+            endpoint=f"{ep.module}.{ep.name}",
         ))
     return findings
 
@@ -68,6 +69,7 @@ def missing_permission_check(app: App) -> list[Finding]:
                 message=f"{ep.module}.{ep.name} hits the database with no visible permission check "
                         "(frappe.db bypasses DocType permissions).",
                 file=ep.file, line=ep.line,
+                endpoint=f"{ep.module}.{ep.name}",
             ))
     return findings
 
@@ -96,6 +98,7 @@ def whitelisted_secret_reveal(app: App) -> list[Finding]:
                                     f"({call.func.attr}()) to the caller — verify every role "
                                     "that can call this endpoint should see this value in plaintext",
                             file=ep.file, line=node.lineno,
+                            endpoint=f"{ep.module}.{ep.name}",
                         ))
     return findings
 
@@ -132,6 +135,7 @@ def dynamic_dispatch_on_stored_data(app: App) -> list[Finding]:
                             f"{node.args[0].id} comes from a DocType field — dynamic dispatch on "
                             "stored data; whoever can edit that field controls what code runs",
                     file=ep.file, line=node.lineno,
+                    endpoint=f"{ep.module}.{ep.name}",
                 ))
     return findings
 

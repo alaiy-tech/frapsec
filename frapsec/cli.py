@@ -5,8 +5,11 @@ import sys
 from pathlib import Path
 
 from . import discovery, report
+from .model import Finding
 from .rules import run_all
 from .rules.config import run_config
+
+_FINDING_FIELDS = {f.name for f in __import__("dataclasses").fields(Finding)}
 
 
 def main(argv=None):
@@ -38,12 +41,39 @@ def main(argv=None):
     perms = sub.add_parser("permissions", help="dump role -> DocType permission matrix")
     perms.add_argument("path", help="app path")
     perms.add_argument("--format", choices=["text", "json"], default="text")
+
+    verify = sub.add_parser("verify", help="confirm static findings against a REAL site (dynamic mode)")
+    verify.add_argument("findings_json", help="JSON output from a prior `frapsec scan --format json` run")
+    verify.add_argument("--site", required=True, metavar="URL", help="e.g. https://staging.example.com")
+    verify.add_argument("--api-key", required=True)
+    verify.add_argument("--api-secret", required=True)
+    verify.add_argument("--confirm", action="store_true",
+                        help="required: this makes real network calls to --site with the given "
+                             "credentials. Use a disposable/low-privilege API key, never Administrator.")
+    verify.add_argument("--format", choices=["text", "json"], default="text")
     args = p.parse_args(argv)
 
     if args.cmd == "permissions":
         app = discovery.discover_app(args.path)
         matrix = report.permission_matrix(app)
         print(json.dumps(matrix, indent=2) if args.format == "json" else report.matrix_text(matrix))
+        return
+
+    if args.cmd == "verify":
+        if not args.confirm:
+            p.error("verify makes real network calls to --site -- pass --confirm to proceed "
+                     "(use a disposable/low-privilege API key, never Administrator)")
+        import dataclasses
+        from . import dynamic
+        raw = json.loads(Path(args.findings_json).read_text())
+        findings = [Finding(**{k: v for k, v in row.items() if k in _FINDING_FIELDS}) for row in raw]
+        dynamic.verify(findings, args.site, args.api_key, args.api_secret)
+        if args.format == "json":
+            print(json.dumps([dataclasses.asdict(f) for f in findings], indent=2))
+        else:
+            for f in findings:
+                if f.endpoint:
+                    print(f"[{f.verified.upper():10}] {f.endpoint}  ({f.rule_id}, was {f.severity})")
         return
 
     interactive = args.format == "text" and not args.plain and sys.stdout.isatty()
