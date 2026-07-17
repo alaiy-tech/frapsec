@@ -16,7 +16,8 @@ frapsec permissions apps/myapp                    # role -> DocType permission m
 
 Semgrep layer (bundled Frappe security rules) runs automatically when `semgrep` is on PATH (Linux/WSL/CI); skipped otherwise. `--no-semgrep` to disable, `--semgrep-rules DIR` to override.
 
-Full command-by-command usage with example output: [USAGE.md](USAGE.md).
+Full command-by-command usage with example output: [docs/USAGE.md](docs/USAGE.md).
+Architecture and tech stack: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Layout
 
