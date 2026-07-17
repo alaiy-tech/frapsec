@@ -3,6 +3,7 @@ import ast
 from pathlib import Path
 
 from . import rule
+from .catalog import IDEMPOTENCY_CHECKS
 from ..model import App, Finding
 
 
@@ -105,7 +106,7 @@ def webhook_missing_idempotency(app: App) -> list[Finding]:
             continue
         src = ast.unparse(fn)
         inserts = ".insert(" in src or ".save(" in src
-        checks = any(c in src for c in ("frappe.db.exists", "get_value", "get_all", "get_list", ".exists("))
+        checks = any(c in src for c in IDEMPOTENCY_CHECKS)
         if inserts and not checks:
             findings.append(Finding(
                 rule_id="FRAP-BIZ-004", severity="medium", app=app.name,

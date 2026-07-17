@@ -2,24 +2,15 @@
 from pathlib import Path
 
 from . import rule
+from .catalog import DESTRUCTIVE_JOB_WORDS, SENSITIVE_HOOKS
 from ..model import App, Finding
-
-# hook key -> (severity, why it matters)
-_SENSITIVE_HOOKS = {
-    "override_whitelisted_methods": ("high", "replaces core API endpoints — the override inherits the original's exposure, audit each replacement"),
-    "auth_hooks": ("high", "custom authentication logic — a bug here bypasses login for the whole site"),
-    "override_doctype_class": ("medium", "replaces core DocType controllers — can silently drop core validations/permission checks"),
-    "before_request": ("medium", "runs on every request before auth-sensitive handlers — audit for early returns and state mutation"),
-    "permission_query_conditions": ("info", "custom list-query filtering — verify conditions can't be bypassed via direct get_doc"),
-    "has_permission": ("info", "custom permission logic — verify it fails closed"),
-}
 
 
 @rule
 def sensitive_hooks(app: App) -> list[Finding]:
     hooks_file = str(Path(app.path) / app.name / "hooks.py")
     findings = []
-    for key, (sev, why) in _SENSITIVE_HOOKS.items():
+    for key, (sev, why) in SENSITIVE_HOOKS.items():
         val = app.hooks.get(key)
         if val:
             findings.append(Finding(
@@ -49,10 +40,9 @@ def scheduler_inventory(app: App) -> list[Finding]:
     """Scheduler jobs run as Administrator — flag ones whose names suggest destructive scope."""
     events = app.hooks.get("scheduler_events") or {}
     findings = []
-    dangerous = ("delete", "cleanup", "purge", "remove", "truncate", "reset")
     for freq, jobs in events.items() if isinstance(events, dict) else []:
         for job in jobs if isinstance(jobs, list) else []:
-            if isinstance(job, str) and any(d in job.lower() for d in dangerous):
+            if isinstance(job, str) and any(d in job.lower() for d in DESTRUCTIVE_JOB_WORDS):
                 findings.append(Finding(
                     rule_id="FRAP-HOOK-003", severity="medium", app=app.name,
                     message=f"scheduler job ({freq}) with destructive name runs as Administrator: {job}",

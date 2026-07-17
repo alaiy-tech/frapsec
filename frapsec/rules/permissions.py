@@ -1,8 +1,7 @@
 """Permission-model rules over DocType JSON."""
 from . import rule
+from .catalog import WRITE_PERMS
 from ..model import App, Finding
-
-WRITE_PERMS = ("write", "create", "delete", "submit", "cancel", "amend")
 
 
 @rule

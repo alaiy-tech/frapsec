@@ -3,9 +3,8 @@ import ast
 from pathlib import Path
 
 from . import rule
+from .catalog import DB_CALLS, PERM_CALLS, WRITE_CALLS
 from ..model import App, Finding
-
-PERM_CALLS = {"has_permission", "check_permission", "only_for", "throw_if_not_permitted"}
 
 
 @rule
@@ -28,8 +27,7 @@ def guest_api(app: App) -> list[Finding]:
         verifies = "compare_digest" in src or "hmac.new" in src
         # critical needs consequence: guest handler that WRITES from unverified input.
         # Auth-shaped endpoints (login/oauth) read request data legitimately (frappe-core triage).
-        writes = any(w in src for w in (".insert(", ".save(", ".delete(", "delete_doc",
-                                        "set_value", ".submit(", "enqueue("))
+        writes = any(w in src for w in WRITE_CALLS)
         if reads_request and verifies:
             sev, msg = "info", "Guest webhook endpoint with HMAC verification"
         elif reads_request and writes:
@@ -60,7 +58,7 @@ def missing_permission_check(app: App) -> list[Finding]:
             continue
         calls = {n.func.attr for n in ast.walk(body)
                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
-        touches_db = any(c in calls for c in ("sql", "set_value", "delete", "get_all", "get_list"))
+        touches_db = any(c in calls for c in DB_CALLS)
         if touches_db and not (calls & PERM_CALLS) and "get_doc" not in calls:
             findings.append(Finding(
                 rule_id="FRAP-API-002", severity="medium", app=app.name,
