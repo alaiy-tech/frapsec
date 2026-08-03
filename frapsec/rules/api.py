@@ -21,10 +21,10 @@ def guest_api(app: App) -> list[Finding]:
             continue
         body = _function_source(ep.file, ep.line)
         src = ast.unparse(body) if body else ""
-        # ponytail: string-match on the handler body only — HMAC done in a called
-        # helper reads as "no verification". Follow calls one level when that FP shows up.
         reads_request = "frappe.request" in src or "form_dict" in src
-        verifies = "compare_digest" in src or "hmac.new" in src
+        # HMAC check may live in a called helper, not the endpoint's own body --
+        # follow same-file bare-name calls one hop and check their source too.
+        verifies = "compare_digest" in src or "hmac.new" in src or _one_hop_verifies(ep.file, body)
         # critical needs consequence: guest handler that WRITES from unverified input.
         # Auth-shaped endpoints (login/oauth) read request data legitimately (frappe-core triage).
         writes = any(w in src for w in WRITE_CALLS)
@@ -149,3 +149,26 @@ def _function_source(file: str, line: int) -> ast.FunctionDef | None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.lineno == line:
             return node
     return None
+
+
+def _one_hop_verifies(file: str, body: ast.AST | None) -> bool:
+    """True if a same-file, bare-name function called from `body` contains an
+    HMAC check. Same-file-only, one hop -- cheap fix for the common case
+    (a webhook handler delegating signature checks to a local helper)
+    without building a full cross-file call graph for this one rule."""
+    if body is None:
+        return False
+    called_names = {n.func.id for n in ast.walk(body)
+                     if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    if not called_names:
+        return False
+    try:
+        tree = ast.parse(Path(file).read_text(encoding="utf-8", errors="replace"))
+    except (SyntaxError, OSError):
+        return False
+    for node in ast.walk(tree):
+        if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in called_names):
+            src = ast.unparse(node)
+            if "compare_digest" in src or "hmac.new" in src:
+                return True
+    return False

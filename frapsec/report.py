@@ -33,6 +33,21 @@ def to_json(findings: list[Finding]) -> str:
     return json.dumps([dataclasses.asdict(f) for f in sort_findings(findings)], indent=2)
 
 
+def to_markdown(findings: list[Finding]) -> str:
+    findings = sort_findings(findings)
+    if not findings:
+        return "# frapsec report\n\nNo findings.\n"
+    counts = Counter(f.severity for f in findings)
+    summary = " ".join(f"**{s}**: {counts[s]}" for s in _SEVERITY_ORDER if counts.get(s))
+    lines = [f"# frapsec report\n\n{summary}\n", "| Severity | Rule | Finding | Location |",
+             "|---|---|---|---|"]
+    for f in findings:
+        msg = f.message.replace("|", "\\|").replace("\n", " ")
+        lines.append(f"| {f.severity} | `{f.rule_id}` | {msg} | `{f.file}:{f.line}` |")
+    lines.append(f"\n{len(findings)} finding(s).")
+    return "\n".join(lines)
+
+
 def to_html(findings: list[Finding], title: str = "frapsec report") -> str:
     findings = sort_findings(findings)
     from jinja2 import Environment, PackageLoader

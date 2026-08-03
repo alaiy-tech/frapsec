@@ -24,7 +24,7 @@ def main(argv=None):
     scan = sub.add_parser("scan", help="scan a bench or app")
     scan.add_argument("target_type", choices=["bench", "app", "site"])
     scan.add_argument("path")
-    scan.add_argument("--format", choices=["text", "json", "sarif", "html"], default="text")
+    scan.add_argument("--format", choices=["text", "json", "sarif", "html", "markdown"], default="text")
     scan.add_argument("--semgrep-rules",
                       default=str(Path(__file__).parent / "semgrep_rules"),
                       help="semgrep rules dir (default: bundled frapsec rules); "
@@ -172,7 +172,8 @@ def main(argv=None):
         render(findings, console)
     else:
         fmt = {"text": report.to_text, "json": report.to_json,
-               "sarif": report.to_sarif, "html": report.to_html}[args.format]
+               "sarif": report.to_sarif, "html": report.to_html,
+               "markdown": report.to_markdown}[args.format]
         print(fmt(findings))
     sys.exit(1 if any(f.severity in ("critical", "high") for f in findings) else 0)
 

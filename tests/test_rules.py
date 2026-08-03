@@ -29,6 +29,17 @@ def h():
     if not hmac.compare_digest(sig, frappe.request.headers.get("X-Sig", "")):
         return
 ''', "FRAP-API-001", "info"),
+    ("guest_hmac_in_helper", '''
+import frappe, hmac, hashlib
+@frappe.whitelist(allow_guest=True)
+def h():
+    raw = frappe.request.data
+    if not _verify_signature(raw, frappe.request.headers.get("X-Sig", "")):
+        return
+def _verify_signature(raw, sig):
+    expected = hmac.new(b"k", raw, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, sig)
+''', "FRAP-API-001", "info"),
     ("guest_plain_no_args", '''
 import frappe
 @frappe.whitelist(allow_guest=True)
