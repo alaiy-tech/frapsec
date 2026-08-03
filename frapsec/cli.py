@@ -32,6 +32,13 @@ def main(argv=None):
     scan.add_argument("--no-semgrep", action="store_true", help="skip the semgrep layer")
     scan.add_argument("--no-bandit", action="store_true", help="skip the bandit layer")
     scan.add_argument("--no-secrets-scan", action="store_true", help="skip the detect-secrets layer")
+    scan.add_argument("--only", metavar="CATEGORY", action="append",
+                      choices=["api", "business", "database", "hooks", "permissions", "tenancy", "config"],
+                      help="restrict native rules to this category (repeatable). Also restricts "
+                           "config.py to the 'config' bucket. External layers (semgrep/bandit/"
+                           "detect-secrets) have no clean category mapping and are SKIPPED "
+                           "entirely when --only is set -- use --no-semgrep etc explicitly if "
+                           "you want them alongside a category filter.")
     scan.add_argument("--diff", metavar="REF",
                       help="only report findings in files changed vs git REF (PR mode)")
     scan.add_argument("--baseline", metavar="PATH",
@@ -133,20 +140,25 @@ def main(argv=None):
             site_dir = Path(args.path)
             sites = [s for s in discovery.discover_sites(str(site_dir.parent.parent)) if s.name == site_dir.name]
 
+    only = set(args.only) if args.only else None
+
     with spin("Running rules..."):
-        findings = run_all(apps) + run_config(sites)
-    if not args.no_semgrep:
-        from . import semgrep
-        with spin("Running semgrep..."):
-            findings += semgrep.run(args.semgrep_rules, args.path)
-    if not args.no_bandit:
-        from . import bandit_scan
-        with spin("Running bandit..."):
-            findings += bandit_scan.run(args.path)
-    if not args.no_secrets_scan:
-        from . import secrets_scan
-        with spin("Running detect-secrets..."):
-            findings += secrets_scan.run(args.path)
+        findings = run_all(apps, only=only if only is None else (only - {"config"}))
+        if only is None or "config" in only:
+            findings += run_config(sites)
+    if only is None:
+        if not args.no_semgrep:
+            from . import semgrep
+            with spin("Running semgrep..."):
+                findings += semgrep.run(args.semgrep_rules, args.path)
+        if not args.no_bandit:
+            from . import bandit_scan
+            with spin("Running bandit..."):
+                findings += bandit_scan.run(args.path)
+        if not args.no_secrets_scan:
+            from . import secrets_scan
+            with spin("Running detect-secrets..."):
+                findings += secrets_scan.run(args.path)
     if args.diff:
         import subprocess
         changed = subprocess.run(
