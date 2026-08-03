@@ -16,4 +16,4 @@ build-backend = "setuptools.build_meta"
 include = ["frapsec*"]
 
 [tool.setuptools.package-data]
-frapsec = ["semgrep_rules/*", "templates/*"]
+frapsec = ["semgrep_rules/*", "semgrep_rules_lint/*", "templates/*"]

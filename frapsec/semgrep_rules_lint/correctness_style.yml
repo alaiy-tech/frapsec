@@ -1,0 +1,200 @@
+# Style/correctness lint, NOT security -- opt-in only via --semgrep-rules
+rules:
+- id: frapsec-modifying-but-not-comitting
+  patterns:
+    - pattern: |
+        def $METHOD(self, ...):
+          ...
+          self.$ATTR = ...
+    - pattern-not: |
+        def $METHOD(self, ...):
+          ...
+          self.$ATTR = ...
+          ...
+          self.db_set(..., self.$ATTR, ...)
+    - pattern-not: |
+        def $METHOD(self, ...):
+          ...
+          self.$ATTR = $SOME_VAR
+          ...
+          self.db_set(..., $SOME_VAR, ...)
+    - pattern-not: |
+        def $METHOD(self, ...):
+          ...
+          self.$ATTR = $SOME_VAR
+          ...
+          self.save(...)
+    - metavariable-regex:
+        metavariable: '$ATTR'
+        # this is negative look-ahead, add more attrs to ignore like (ignore|ignore_this_too|ignore_me)
+        regex: '^(?!ignore_linked_doctypes|status_updater)(.*)$'
+    - metavariable-regex:
+        metavariable: "$METHOD"
+        regex: "(on_submit|on_cancel|after_insert|on_update|on_update_after_submit)"
+  message: |
+    DocType modified in self.$METHOD. Please check if modification of self.$ATTR is commited to database.
+  languages: [python]
+  severity: ERROR
+- id: frapsec-modifying-but-not-comitting-other-method
+  patterns:
+  - pattern: |
+      class $DOCTYPE(...):
+        def $METHOD(self, ...):
+          ...
+          self.$ANOTHER_METHOD()
+          ...
+
+        def $ANOTHER_METHOD(self, ...):
+          ...
+          self.$ATTR = ...
+  - pattern-not: |
+      class $DOCTYPE(...):
+        def $METHOD(self, ...):
+          ...
+          self.$ANOTHER_METHOD()
+          ...
+
+        def $ANOTHER_METHOD(self, ...):
+          ...
+          self.$ATTR = ...
+          ...
+          self.db_set(..., self.$ATTR, ...)
+  - pattern-not: |
+      class $DOCTYPE(...):
+        def $METHOD(self, ...):
+          ...
+          self.$ANOTHER_METHOD()
+          ...
+
+        def $ANOTHER_METHOD(self, ...):
+          ...
+          self.$ATTR = $SOME_VAR
+          ...
+          self.db_set(..., $SOME_VAR, ...)
+  - pattern-not: |
+      class $DOCTYPE(...):
+        def $METHOD(self, ...):
+          ...
+          self.$ANOTHER_METHOD()
+          ...
+          self.save(...)
+        def $ANOTHER_METHOD(self, ...):
+          ...
+          self.$ATTR = ...
+  - metavariable-regex:
+      metavariable: "$METHOD"
+      regex: "(on_submit|on_cancel|after_insert|on_update|on_update_after_submit)"
+  message: |
+    self.$ANOTHER_METHOD is called from self.$METHOD, check if changes to self.$ATTR are commited to database.
+  languages: [python]
+  severity: ERROR
+- id: frapsec-print-function-in-doctypes
+  pattern: print(...)
+  message: |
+      Did you mean to leave this print statement in? Consider using msgprint or logger instead of print statement.
+  languages: [python]
+  severity: WARNING
+  paths:
+      include:
+        - "**/doctype/*"
+- id: frapsec-no-functional-code
+  pattern-either:
+    - pattern: "map(...)"
+    - pattern: "filter(...)"
+  message: |
+      Mixing functional programming usually yields in confusing code and bugs. Use list comprehensions or generators instead.
+  languages: [python]
+  severity: WARNING
+- id: frapsec-query-debug-statement
+  pattern-either:
+    - pattern: $FUNC(..., debug=True, ...)
+    - pattern: $FUNC(..., debug=1, ...)
+  message: |
+      Did you mean to leave this debug statement in?
+  languages: [python]
+  severity: WARNING
+- id: frapsec-modifying-child-tables-while-iterating
+  pattern-either:
+    - pattern: |
+        for $ROW in self.$TABLE:
+            ...
+            self.remove(...)
+    - pattern: |
+        for $ROW in self.$TABLE:
+            ...
+            self.append(...)
+  message: |
+      Child table being modified while iterating on it.
+  languages: [python]
+  severity: ERROR
+  paths:
+      include:
+        - "**/doctype/*"
+- id: frapsec-same-key-assigned-twice
+  pattern-either:
+    - pattern: |
+        {..., $X: $A, ..., $X: $B, ...}
+    - pattern: |
+        dict(..., ($X, $A), ..., ($X, $B), ...)
+    - pattern: |
+        _dict(..., ($X, $A), ..., ($X, $B), ...)
+  message: |
+      key `$X` is uselessly assigned twice. This could be a potential bug.
+  languages: [python]
+  severity: ERROR
+- id: frapsec-single-value-type-safety
+  patterns:
+    - pattern-either:
+      - pattern: frappe.db.get_value($DOCTYPE, $DOCTYPE, $...AFTER)
+      - pattern: frappe.db.get_value($DOCTYPE, None, $...AFTER)
+    - pattern-not: frappe.db.get_value($DOCTYPE, None, [...])
+    - pattern-not: frappe.db.get_value($DOCTYPE, $DOCTYPE, [...])
+  fix: frappe.db.get_single_value($DOCTYPE, $...AFTER)
+  message: |
+    If $DOCTYPE is a single doctype then using `frappe.db.get_value` is discouraged for fetching value from single doctypes. frappe.db.get_value for single doctype is not type safe, use `frappe.db.get_single_value` instead.
+  languages: [python]
+  severity: ERROR
+- id: frapsec-set-value-semantics
+  patterns:
+    - pattern-either:
+      - pattern: frappe.db.set_value($DOCTYPE, None, $...AFTER)
+      - pattern: frappe.db.set_value($DOCTYPE, $DOCTYPE, $...AFTER)
+  fix: frappe.db.set_single_value($DOCTYPE, $...AFTER)
+  message: |
+    If $DOCTYPE is a single doctype then using `frappe.db.set_value` is discouraged for setting values in DB. Use db.set_single_value for single doctype instead.
+  languages: [python]
+  severity: ERROR
+- id: frapsec-after-save-controller-hook
+  pattern: |
+    class $DOCTYPE($SOMEBASECLASS, ...):
+      def after_save(self):
+        ...
+  message: |
+    `after_save` is not a valid DocType controller hook. Please have a look at the hooks available: https://frappeframework.com/docs/v13/user/en/basics/doctypes/controllers#controller-hooks
+  languages: [python]
+  severity: ERROR
+- id: frapsec-qb-incorrect-order-usage
+  patterns:
+    - pattern-either:
+      - pattern: $QUERY. ... .orderby(..., "asc")
+      - pattern: $QUERY. ... .orderby(..., "desc")
+      - pattern: $QUERY. ... .orderby(..., frappe.qb.desc)
+      - pattern: $QUERY. ... .orderby(..., Order.desc)
+      - pattern: $QUERY. ... .orderby(..., Order.asc)
+    - pattern-not: $QUERY. ... .orderby(..., order=$LASTVAR)
+  message: |
+    `order` in `orderby` has to be a keyword argument like `.orderby("time", order=frappe.qb.desc)`. Re-check the generated query.
+  languages: [python]
+  severity: ERROR
+- id: frapsec-cur-frm-usage
+  pattern: cur_frm
+  message: |
+    `cur_frm` is deprecated and can introduce buggy behaviour.
+  languages: [javascript]
+  severity: WARNING
+- id: frapsec-incorrect-debounce
+  pattern: frappe.utils.debounce(...)(...);
+  message: |
+    `debounce` should be used to create a debounced version of function and should only be called once. If the function is called multiple times then each time a new debounced version of function gets created and you don't actually achieve debounce behaviour.
+  languages: [javascript]
+  severity: ERROR
