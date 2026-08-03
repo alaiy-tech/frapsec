@@ -199,18 +199,46 @@ PERM_CASES = [
     ("normal", [{"role": "Sales User", "read": 1, "write": 1}], "FRAP-PERM-001", False),
 ]
 
+# (label, py_src, fields, rule_id, should_fire) -- doctype is always "Thing"
+TENANT_CASES = [
+    ("no_company_filter", '''
+import frappe
+def list_things():
+    return frappe.get_list("Thing")
+''', ["company", "status"], "FRAP-TENANT-001", True),
+    ("with_company_filter", '''
+import frappe
+def list_things():
+    return frappe.get_list("Thing", filters={"company": "Acme", "status": "Open"})
+''', ["company", "status"], "FRAP-TENANT-001", False),
+    ("doctype_has_no_company_field", '''
+import frappe
+def list_things():
+    return frappe.get_list("Thing")
+''', ["status"], "FRAP-TENANT-001", False),
+    ("filters_is_a_variable_not_verifiable", '''
+import frappe
+def list_things(filt):
+    return frappe.get_list("Thing", filters=filt)
+''', ["company", "status"], "FRAP-TENANT-001", False),
+]
 
-def build_app(tmp: Path, name: str, py_src: str = "", hooks_src: str = 'app_name = "a"\n', perms=None):
+
+def build_app(tmp: Path, name: str, py_src: str = "", hooks_src: str = 'app_name = "a"\n',
+              perms=None, fields=None, doctype_name="Thing"):
     pkg = tmp / name / name
     pkg.mkdir(parents=True)
     (pkg / "hooks.py").write_text(hooks_src)
     if py_src:
         (pkg / "code.py").write_text(py_src)
-    if perms is not None:
-        d = pkg / "mod" / "doctype" / "thing"
+    if perms is not None or fields is not None:
+        d = pkg / "mod" / "doctype" / doctype_name.lower().replace(" ", "_")
         d.mkdir(parents=True)
-        (d / "thing.json").write_text(json.dumps(
-            {"doctype": "DocType", "name": "Thing", "permissions": perms}))
+        (d / f"{doctype_name.lower()}.json").write_text(json.dumps({
+            "doctype": "DocType", "name": doctype_name,
+            "permissions": perms or [],
+            "fields": [{"fieldname": f} for f in (fields or [])],
+        }))
     return str(tmp / name)
 
 
@@ -237,13 +265,16 @@ def test():
         for i, (label, perms, rid, expect) in enumerate(PERM_CASES):
             app = discovery.discover_app(build_app(tmp, f"pm{i}", perms=perms))
             check(run_all([app]), rid, expect, label)
+        for i, (label, src, fields, rid, expect) in enumerate(TENANT_CASES):
+            app = discovery.discover_app(build_app(tmp, f"tn{i}", py_src=src, fields=fields))
+            check(run_all([app]), rid, expect, label)
 
         # config cases
         s = Site(name="s", file="x", config={"developer_mode": 1})
         check(run_config([s]), "FRAP-CONF-001", True, "dev_mode")
         s = Site(name="s", file="x", config={"encryption_key": "k", "db_password": "long-random-thing"})
         check(run_config([s]), "FRAP-CONF-003", False, "good_password")
-    print(f"OK ({len(PY_CASES) + len(HOOKS_CASES) + len(PERM_CASES) + 2} cases)")
+    print(f"OK ({len(PY_CASES) + len(HOOKS_CASES) + len(PERM_CASES) + len(TENANT_CASES) + 2} cases)")
 
 
 if __name__ == "__main__":

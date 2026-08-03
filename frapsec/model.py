@@ -22,6 +22,7 @@ class DocType:
     file: str
     is_child: bool = False
     permissions: list[dict] = field(default_factory=list)  # raw perm rows from JSON
+    fieldnames: list[str] = field(default_factory=list)     # fieldname of each field row
 
 
 @dataclass
