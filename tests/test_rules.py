@@ -185,6 +185,33 @@ def handle_order_webhook(payload):
 ''', "FRAP-BIZ-004", False),
     # secrets rule moved to secrets_scan.py (detect-secrets wrapper),
     # tested separately in tests/test_secrets_scan.py, not part of run_all().
+    # FRAP-DB-001
+    ("db_delete_no_filter", '''
+import frappe
+def wipe(doctype):
+    frappe.db.delete(doctype)
+''', "FRAP-DB-001", True),
+    ("db_delete_with_filter", '''
+import frappe
+def cleanup(doctype):
+    frappe.db.delete(doctype, {"status": "Cancelled"})
+''', "FRAP-DB-001", False),
+    # FRAP-DB-002
+    ("raw_delete_no_where", '''
+import frappe
+def wipe():
+    frappe.db.sql("DELETE FROM `tabItem`")
+''', "FRAP-DB-002", True),
+    ("raw_delete_with_where", '''
+import frappe
+def cleanup():
+    frappe.db.sql("DELETE FROM `tabItem` WHERE disabled = 1")
+''', "FRAP-DB-002", False),
+    ("raw_update_no_where", '''
+import frappe
+def reset():
+    frappe.db.sql("UPDATE `tabItem` SET disabled = 0")
+''', "FRAP-DB-002", "high"),
 ]
 
 HOOKS_CASES = [
