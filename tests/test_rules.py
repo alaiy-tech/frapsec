@@ -334,6 +334,25 @@ def sync():
         # and confirm scanning the connector ALONE (old, narrower behavior)
         # correctly finds nothing -- it doesn't define Sales Order itself
         check(run_all([connector]), "FRAP-TENANT-001", False, "connector_alone_cant_see_core_doctype")
+
+        # callgraph #18: self.foo() inherited from a base class in ANOTHER
+        # file must resolve, not just same-file. base.py's dangerous() has
+        # no @frappe.whitelist itself -- only reachable via Child.entry().
+        cls_app_root = build_app(tmp, "cls_app")
+        cls_pkg = Path(cls_app_root) / "cls_app"
+        (cls_pkg / "base.py").write_text(
+            'class Base:\n    def dangerous(self):\n        import frappe\n'
+            '        frappe.set_user("Administrator")\n')
+        (cls_pkg / "child.py").write_text(
+            'import frappe\nfrom cls_app.base import Base\n\n'
+            'class Child(Base):\n    @frappe.whitelist()\n    def entry(self):\n'
+            '        self.dangerous()\n')
+        cls_app = discovery.discover_app(cls_app_root)
+        cls_findings = run_all([cls_app])
+        biz001_hits = [f for f in cls_findings if f.rule_id == "FRAP-BIZ-001"]
+        assert biz001_hits and biz001_hits[0].severity == "high", (
+            f"self.dangerous() inherited cross-file should resolve as reachable+unscoped (high), "
+            f"got: {[(h.severity, h.file) for h in biz001_hits]}")
     print(f"OK ({len(PY_CASES) + len(HOOKS_CASES) + len(PERM_CASES) + len(FIELD_PERM_CASES) + len(TENANT_CASES) + 4} cases)")
 
 

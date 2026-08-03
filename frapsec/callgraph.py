@@ -19,11 +19,18 @@ name-based resolver above can't see it, and matching only its last
 component (an earlier version of this code did that) reintroduces the same
 collision risk the whole file-based resolver exists to avoid.
 
+self./cls. calls resolve through the class hierarchy: same class first,
+then base classes (resolved same-file-or-import, same as any other name) --
+not same-file-only. A base class imported from another file is followed;
+a method not found anywhere in the chain falls back to the old same-file
+bare lookup (loose, but no worse than before).
+
 This still is NOT full static analysis: no relative-import resolution
-beyond simple dotted paths, no wildcard imports, no cross-class method
-resolution beyond self./cls. in the same file. It answers one narrow
-question — "is there a followable path from an endpoint to this function?"
-— conservatively; rules use it as one signal, not a verdict.
+beyond simple dotted paths, no wildcard imports, no multiple-inheritance
+MRO (walks bases in listed order, first match wins), no metaclass/mixin
+magic. It answers one narrow question — "is there a followable path from
+an endpoint to this function?" — conservatively; rules use it as one
+signal, not a verdict.
 """
 import ast
 from dataclasses import dataclass
@@ -88,18 +95,32 @@ def _imported_names(tree: ast.Module) -> dict[str, str]:
     return out
 
 
-def _called_names(fn: ast.AST) -> set[str]:
-    """Bare names resolved via same-file-then-import (see `resolve`)."""
-    names = set()
+def _called_names(fn: ast.AST) -> tuple[set[str], set[str]]:
+    """(bare_names, method_names) -- kept separate because they resolve
+    differently: bare names via same-file-then-import, method names via
+    the class hierarchy (see `resolve_method`)."""
+    bare, methods = set(), set()
     for node in ast.walk(fn):
         if not isinstance(node, ast.Call):
             continue
         if isinstance(node.func, ast.Name):
-            names.add(node.func.id)
+            bare.add(node.func.id)
         elif isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) \
                 and node.func.value.id in ("self", "cls"):
-            names.add(node.func.attr)
-    return names
+            methods.add(node.func.attr)
+    return bare, methods
+
+
+def _classes_in(tree: ast.Module) -> dict[str, tuple[list[str], dict[str, ast.AST]]]:
+    """class name -> (base class name strings, {method name: node})."""
+    out = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        bases = [ast.unparse(b) for b in node.bases]
+        methods = {n.name: n for n in node.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        out[node.name] = (bases, methods)
+    return out
 
 
 def _string_dispatch_targets(fn: ast.AST) -> set[str]:
@@ -135,6 +156,9 @@ def reachable_from_endpoints(app: App) -> Reachability:
     defines: dict[str, set[str]] = {}
     imports_by_module: dict[str, dict[str, str]] = {}
     module_by_file: dict[str, str] = {}
+    classes_by_module: dict[str, dict[str, tuple[list[str], dict[str, ast.AST]]]] = {}
+    class_defines: dict[str, set[str]] = {}
+    func_owner: dict[tuple[str, str], str] = {}  # (mod, func_name) -> class_name
 
     for py in pkg.rglob("*.py"):
         if py.name.startswith("test_"):
@@ -151,12 +175,51 @@ def reachable_from_endpoints(app: App) -> Reachability:
         for name in funcs:
             defines.setdefault(name, set()).add(mod)
 
+        classes = _classes_in(tree)
+        classes_by_module[mod] = classes
+        for cls_name, (_bases, cls_methods) in classes.items():
+            class_defines.setdefault(cls_name, set()).add(mod)
+            for method_name in cls_methods:
+                func_owner.setdefault((mod, method_name), cls_name)
+
     def resolve(caller_mod: str, name: str) -> set[str]:
         if name in by_module.get(caller_mod, {}):
             return {caller_mod}
         imported_from = imports_by_module.get(caller_mod, {}).get(name)
         if imported_from:
             return {m for m in defines.get(name, ()) if m == imported_from or m.endswith("." + imported_from)}
+        return set()
+
+    def resolve_class(caller_mod: str, class_name: str) -> set[str]:
+        if class_name in classes_by_module.get(caller_mod, {}):
+            return {caller_mod}
+        imported_from = imports_by_module.get(caller_mod, {}).get(class_name)
+        if imported_from:
+            return {m for m in class_defines.get(class_name, ()) if m == imported_from or m.endswith("." + imported_from)}
+        return set()
+
+    def resolve_method(mod: str, name: str, method_name: str) -> set[tuple[str, str]]:
+        """self.foo()/cls.foo() inside function `name` (owned by some class
+        in `mod`) -- search that class's own methods, then its base classes
+        (possibly in other files via import), before falling back to the
+        old same-file loose lookup."""
+        cls_name = func_owner.get((mod, name))
+        if cls_name is None:
+            return set()  # not a method (plain function) -- caller falls back
+        seen_classes = set()
+        frontier = [(mod, cls_name)]
+        while frontier:
+            cur_mod, cur_cls = frontier.pop()
+            if (cur_mod, cur_cls) in seen_classes:
+                continue
+            seen_classes.add((cur_mod, cur_cls))
+            bases, methods = classes_by_module.get(cur_mod, {}).get(cur_cls, ([], {}))
+            if method_name in methods:
+                return {(cur_mod, method_name)}
+            for base in bases:
+                base = base.split(".")[-1]  # e.g. "module.Base" -> "Base"
+                for base_mod in resolve_class(cur_mod, base):
+                    frontier.append((base_mod, base))
         return set()
 
     def resolve_dotted(dotted: str) -> set[tuple[str, str]]:
@@ -200,10 +263,17 @@ def reachable_from_endpoints(app: App) -> Reachability:
         fn = by_module.get(mod, {}).get(name)
         if fn is None:
             continue
-        for callee_name in _called_names(fn):
-            for callee_mod in resolve(mod, callee_name) or {mod}:  # same-module fallback for self./cls.
+        bare_names, method_names = _called_names(fn)
+        for callee_name in bare_names:
+            for callee_mod in resolve(mod, callee_name) or {mod}:  # same-module fallback
                 if callee_name in by_module.get(callee_mod, {}):
                     queue.append((callee_mod, callee_name))
+        for method_name in method_names:
+            hits = resolve_method(mod, name, method_name)
+            if hits:
+                queue.extend(hits)
+            elif method_name in by_module.get(mod, {}):  # loose same-file fallback
+                queue.append((mod, method_name))
         for dotted in _string_dispatch_targets(fn):
             queue.extend(resolve_dotted(dotted))
 
