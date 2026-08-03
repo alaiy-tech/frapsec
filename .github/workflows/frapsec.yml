@@ -6,7 +6,7 @@
 #
 #   jobs:
 #     scan:
-#       uses: loyality7/frapsec/.github/workflows/frapsec.yml@main
+#       uses: alaiy-tech/frapsec/.github/workflows/frapsec.yml@main
 #       with:
 #         app_path: .
 #       secrets:
@@ -47,7 +47,7 @@ jobs:
       - name: Install frapsec + semgrep
         run: |
           pip install semgrep
-          pip install "git+https://x-access-token:${{ secrets.frapsec_repo_token }}@github.com/loyality7/frapsec.git"
+          pip install "git+https://x-access-token:${{ secrets.frapsec_repo_token }}@github.com/alaiy-tech/frapsec.git"
 
       - name: Scan
         run: frapsec scan app "$APP_PATH" --format sarif > frapsec.sarif
