@@ -199,6 +199,18 @@ PERM_CASES = [
     ("normal", [{"role": "Sales User", "read": 1, "write": 1}], "FRAP-PERM-001", False),
 ]
 
+# (label, perms, fields, rule_id, should_fire)
+FIELD_PERM_CASES = [
+    ("password_writable_by_low_role", [{"role": "Sales User", "read": 1, "write": 1}],
+     [{"fieldname": "api_secret", "fieldtype": "Password"}], "FRAP-PERM-004", True),
+    ("password_only_admin_tier", [{"role": "System Manager", "read": 1, "write": 1}],
+     [{"fieldname": "api_secret", "fieldtype": "Password"}], "FRAP-PERM-004", False),
+    ("password_at_elevated_permlevel", [{"role": "Sales User", "read": 1, "write": 1}],
+     [{"fieldname": "api_secret", "fieldtype": "Password", "permlevel": 1}], "FRAP-PERM-004", False),
+    ("no_password_field", [{"role": "Sales User", "read": 1, "write": 1}],
+     [{"fieldname": "status"}], "FRAP-PERM-004", False),
+]
+
 # (label, py_src, fields, rule_id, should_fire) -- doctype is always "Thing"
 TENANT_CASES = [
     ("no_company_filter", '''
@@ -234,10 +246,11 @@ def build_app(tmp: Path, name: str, py_src: str = "", hooks_src: str = 'app_name
     if perms is not None or fields is not None:
         d = pkg / "mod" / "doctype" / doctype_name.lower().replace(" ", "_")
         d.mkdir(parents=True)
+        field_rows = [f if isinstance(f, dict) else {"fieldname": f} for f in (fields or [])]
         (d / f"{doctype_name.lower()}.json").write_text(json.dumps({
             "doctype": "DocType", "name": doctype_name,
             "permissions": perms or [],
-            "fields": [{"fieldname": f} for f in (fields or [])],
+            "fields": field_rows,
         }))
     return str(tmp / name)
 
@@ -265,6 +278,9 @@ def test():
         for i, (label, perms, rid, expect) in enumerate(PERM_CASES):
             app = discovery.discover_app(build_app(tmp, f"pm{i}", perms=perms))
             check(run_all([app]), rid, expect, label)
+        for i, (label, perms, fields, rid, expect) in enumerate(FIELD_PERM_CASES):
+            app = discovery.discover_app(build_app(tmp, f"fp{i}", perms=perms, fields=fields))
+            check(run_all([app]), rid, expect, label)
         for i, (label, src, fields, rid, expect) in enumerate(TENANT_CASES):
             app = discovery.discover_app(build_app(tmp, f"tn{i}", py_src=src, fields=fields))
             check(run_all([app]), rid, expect, label)
@@ -291,7 +307,7 @@ def sync():
         # and confirm scanning the connector ALONE (old, narrower behavior)
         # correctly finds nothing -- it doesn't define Sales Order itself
         check(run_all([connector]), "FRAP-TENANT-001", False, "connector_alone_cant_see_core_doctype")
-    print(f"OK ({len(PY_CASES) + len(HOOKS_CASES) + len(PERM_CASES) + len(TENANT_CASES) + 4} cases)")
+    print(f"OK ({len(PY_CASES) + len(HOOKS_CASES) + len(PERM_CASES) + len(FIELD_PERM_CASES) + len(TENANT_CASES) + 4} cases)")
 
 
 if __name__ == "__main__":

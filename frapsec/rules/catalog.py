@@ -13,6 +13,13 @@ WRITE_CALLS = (".insert(", ".save(", ".delete(", "delete_doc", "set_value", ".su
 # ---- permissions.py ---------------------------------------------------------
 WRITE_PERMS = ("write", "create", "delete", "submit", "cancel", "amend")
 
+# Framework-built-in admin-tier roles present by default on every Frappe site
+# (not an app-specific guess -- same class of framework primitive as
+# "Administrator" already being special-cased in dynamic/cli.py). Used to
+# decide whether a Password field being writable is "the admin managing
+# their own settings" (normal) vs "some other role having it" (worth a look).
+ADMIN_TIER_ROLES = {"Administrator", "System Manager"}
+
 # ---- hooks.py ---------------------------------------------------------------
 # hook key -> (severity, why it matters)
 SENSITIVE_HOOKS = {

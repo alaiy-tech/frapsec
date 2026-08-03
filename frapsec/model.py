@@ -23,6 +23,7 @@ class DocType:
     is_child: bool = False
     permissions: list[dict] = field(default_factory=list)  # raw perm rows from JSON
     fieldnames: list[str] = field(default_factory=list)     # fieldname of each field row
+    password_fields: list[str] = field(default_factory=list)  # Password-fieldtype fields at permlevel 0
 
 
 @dataclass

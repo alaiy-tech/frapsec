@@ -112,8 +112,11 @@ def _parse_doctype(app_name: str, json_file: Path) -> DocType | None:
         return None
     fields = data.get("fields", [])
     fieldnames = [f.get("fieldname") for f in fields if isinstance(f, dict) and f.get("fieldname")]
+    password_fields = [f.get("fieldname") for f in fields
+                        if isinstance(f, dict) and f.get("fieldtype") == "Password"
+                        and int(f.get("permlevel") or 0) == 0]
     return DocType(
         app=app_name, name=data.get("name", json_file.stem), file=str(json_file),
         is_child=bool(data.get("istable")), permissions=data.get("permissions", []),
-        fieldnames=fieldnames,
+        fieldnames=fieldnames, password_fields=password_fields,
     )
