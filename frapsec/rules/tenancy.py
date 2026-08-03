@@ -12,7 +12,6 @@ claim a verdict the AST can't actually support).
 """
 import ast
 
-from . import rule
 from ..model import App, Finding
 
 _LIST_CALLS = ("get_list", "get_all")
@@ -60,9 +59,15 @@ def _filters_has_company(node: ast.Call) -> bool | None:
     return None  # Name/Call/etc -- can't verify statically
 
 
-@rule
-def cross_company_query(app: App) -> list[Finding]:
-    company_doctypes = {dt.name for dt in app.doctypes if "company" in dt.fieldnames}
+def company_doctypes_in(apps: list[App]) -> set[str]:
+    """Bench-wide index: every DocType name that has a `company` field,
+    across ALL scanned apps -- not just the one being checked. Needed
+    because the risky call is usually a connector app querying a CORE
+    doctype (Sales Order, etc) it doesn't itself define."""
+    return {dt.name for a in apps for dt in a.doctypes if "company" in dt.fieldnames}
+
+
+def cross_company_query(app: App, company_doctypes: set[str]) -> list[Finding]:
     if not company_doctypes:
         return []
 

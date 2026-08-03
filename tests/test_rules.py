@@ -274,7 +274,24 @@ def test():
         check(run_config([s]), "FRAP-CONF-001", True, "dev_mode")
         s = Site(name="s", file="x", config={"encryption_key": "k", "db_password": "long-random-thing"})
         check(run_config([s]), "FRAP-CONF-003", False, "good_password")
-    print(f"OK ({len(PY_CASES) + len(HOOKS_CASES) + len(PERM_CASES) + len(TENANT_CASES) + 2} cases)")
+
+        # cross-app case: DocType (with company field) defined in a CORE
+        # app, queried with no company filter by a CONNECTOR app that
+        # doesn't define it itself -- the real-world shape #25 was filed
+        # about. Only fires when both apps are scanned together.
+        core = discovery.discover_app(build_app(tmp, "core_app", fields=["company"],
+                                                  doctype_name="Sales Order"))
+        connector = discovery.discover_app(build_app(tmp, "connector_app", py_src='''
+import frappe
+def sync():
+    return frappe.get_list("Sales Order")
+'''))
+        cross_findings = run_all([core, connector])
+        check(cross_findings, "FRAP-TENANT-001", True, "cross_app_no_company_filter")
+        # and confirm scanning the connector ALONE (old, narrower behavior)
+        # correctly finds nothing -- it doesn't define Sales Order itself
+        check(run_all([connector]), "FRAP-TENANT-001", False, "connector_alone_cant_see_core_doctype")
+    print(f"OK ({len(PY_CASES) + len(HOOKS_CASES) + len(PERM_CASES) + len(TENANT_CASES) + 4} cases)")
 
 
 if __name__ == "__main__":
