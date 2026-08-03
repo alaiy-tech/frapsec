@@ -11,8 +11,8 @@ import sys
 from .model import Finding
 
 _SEVERITY = {"ERROR": "high", "WARNING": "medium", "INFO": "info"}
-# overlaps with frapsec's own (smarter) rules
-_SKIP = {"guest-whitelisted-method", "missing-argument-type-hint"}
+# overlaps with frapsec's own (smarter) rules -- ids match the frapsec-* rename
+_SKIP = {"frapsec-guest-whitelisted-method", "frapsec-missing-argument-type-hint"}
 
 
 def run(rules_dir: str, target: str) -> list[Finding]:
