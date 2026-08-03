@@ -6,7 +6,9 @@
 |---|---|---|
 | Language | Python 3.10+, stdlib `ast` | Frappe apps are Python; `ast` reads source without executing it — no Frappe install, no database, no running site |
 | Rules | plain functions + `@rule` decorator | no rule-engine framework; a rule is `(App) -> list[Finding]` |
-| Pattern layer | semgrep (vendored `frappe/semgrep-rules`, MIT) | SQLi/RCE/SSTI/traversal patterns semgrep already does well — no reason to reimplement pattern matching in `ast` |
+| Pattern layer | semgrep (vendored `frappe/semgrep-rules` security subset, MIT) | SQLi/RCE/SSTI/traversal patterns semgrep already does well — no reason to reimplement pattern matching in `ast` |
+| Python lint | bandit | catches classes AST rules + semgrep don't: silent except-pass, weak hashes, subprocess/pickle risks |
+| Secrets | detect-secrets | far more secret-shape coverage (AWS keys, JWTs, high-entropy strings) than a hand-rolled regex list ever could |
 | Reachability | hand-rolled same-app call graph (`callgraph.py`) | no off-the-shelf Python call-graph library resolves Frappe's dynamic-dispatch patterns (`frappe.enqueue("dotted.path")`, `get_attr`) — those needed custom edges |
 | Output | `jinja2` (HTML), `rich` (terminal table/colors), stdlib `json` | jinja2/rich are the standard choice for each; no custom templating or ANSI-code hand-rolling |
 | Dynamic verification | `requests` | one HTTP client, only imported when `verify` actually runs |
@@ -21,7 +23,8 @@ discovery.py                 rules/*.py                    report.py / tui.py
 ─────────────                ──────────                    ──────────────────
 walk bench/app/site      →   App/Site objects          →   list[Finding]     →   text/json/sarif/html
 (ast.parse, json.load)       run through @rule funcs       sorted by severity     or rich terminal table
-                              + semgrep subprocess
+                              + semgrep/bandit/
+                              detect-secrets subprocess
                                    ↓
                           callgraph.py: same-app
                           call graph, answers
@@ -41,6 +44,8 @@ frapsec/
   callgraph.py       same-app reachability graph; Reachability.contains(file, name)
   baseline.py        accept-current-findings so re-scans show only new ones
   semgrep.py         shells out to `semgrep`, converts results into Finding
+  bandit_scan.py     shells out to `bandit`, converts results into Finding
+  secrets_scan.py    shells out to `detect-secrets`, converts results into Finding
   report.py          text / json / sarif / html renderers, severity sort shared by all of them
   tui.py             rich terminal rendering: banner, mode indicator, colored tables, spinner
   cli.py             argparse wiring — the only file that knows about command-line flags
@@ -52,8 +57,8 @@ frapsec/
     hooks.py           FRAP-HOOK-001..003 (sensitive hooks, routes, scheduler jobs)
     permissions.py     FRAP-PERM-001..003 (DocType permission table checks)
     config.py          FRAP-CONF-001..005 (site_config.json audit)
-    secrets.py         FRAP-SECRET-001..002 (hardcoded credentials)
-  semgrep_rules/      vendored + tuned semgrep YAML (MIT, frappe/semgrep-rules)
+  semgrep_rules/      vendored + tuned security semgrep YAML (MIT, frappe/semgrep-rules), default-on
+  semgrep_rules_lint/ vendored non-security subset (i18n, JS style, code quality) — opt-in only
   templates/          HTML report Jinja2 template
   dynamic/
     __init__.py         verify() orchestration

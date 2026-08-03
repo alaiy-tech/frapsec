@@ -22,14 +22,16 @@ frapsec scan <bench|app|site> <path> [flags]
 | Flag | Default | Meaning |
 |---|---|---|
 | `--format text\|json\|sarif\|html` | `text` | output format. `text` on a real terminal renders a colored table automatically |
-| `--no-semgrep` | off | skip the semgrep layer entirely |
-| `--semgrep-rules DIR` | bundled rules | use a different semgrep rules directory instead of frapsec's own |
+| `--no-semgrep` | off | skip the semgrep layer (15 vendored security rules) |
+| `--semgrep-rules DIR` | bundled security rules | use a different rules dir — e.g. `frapsec/semgrep_rules_lint` for the non-security (i18n/style) set, opt-in only |
+| `--no-bandit` | off | skip the bandit layer (Python security lint) |
+| `--no-secrets-scan` | off | skip the detect-secrets layer |
 | `--diff REF` | none | PR mode — only report findings in files that differ from git ref `REF` (e.g. `origin/main`). Runs `git diff --name-only REF` inside `path`, so `path` must be a git repo |
 | `--baseline PATH` | none | only report findings not already recorded in the baseline file at `PATH` |
 | `--update-baseline` | off | write every current finding into `--baseline` as accepted, print a count, exit (does not print the findings) |
 | `--plain` | off | force plain text even on a real terminal — no colors, no table |
 
-**Requirements**: semgrep on `PATH` for the semgrep layer (auto-skipped with a stderr notice if missing — scan still runs, just without those 13 rules). `--format html` needs `jinja2` (already a hard dependency). `--diff` needs `git` on `PATH`.
+**Requirements**: semgrep/bandit/detect-secrets each on `PATH` for their layer — each auto-skips with its own stderr notice if missing, scan still runs with whatever's left. `--format html` needs `jinja2` (already a hard dependency). `--diff` needs `git` on `PATH`.
 
 **Exit code**: `1` if any `critical`/`high` finding exists, `0` otherwise — CI-friendly.
 
