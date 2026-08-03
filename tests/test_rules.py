@@ -93,6 +93,13 @@ import frappe
 def h(name):
     return frappe.db.get_all("Sales Invoice", filters={"customer": name})
 ''', "FRAP-API-002", True),
+    ("db_no_check_but_unknown_decorator", '''
+import frappe
+@frappe.whitelist()
+@administrator_only
+def h(name):
+    return frappe.db.get_all("Sales Invoice", filters={"customer": name})
+''', "FRAP-API-002", "info"),
     ("db_with_check", '''
 import frappe
 @frappe.whitelist()

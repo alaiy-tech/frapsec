@@ -50,6 +50,23 @@ def guest_api(app: App) -> list[Finding]:
     return findings
 
 
+# decorators known NOT to gate access -- anything else wrapping an endpoint
+# COULD be a permission check we can't see inside (confirmed real on
+# frappe/core: @administrator_only wraps recorder.start(), a genuine
+# Administrator-only gate the old rule completely missed since it only
+# looked at calls inside the function body, never decorators).
+_NO_OP_DECORATORS = {"frappe.whitelist", "whitelist", "frappe.read_only", "read_only",
+                     "do_not_record", "frappe.read_only()"}
+
+
+def _has_unknown_decorator(body: ast.FunctionDef) -> bool:
+    for dec in body.decorator_list:
+        target = dec.func if isinstance(dec, ast.Call) else dec
+        if ast.unparse(target) not in _NO_OP_DECORATORS:
+            return True
+    return False
+
+
 @rule
 def missing_permission_check(app: App) -> list[Finding]:
     """Whitelisted method that touches frappe.db but never checks permissions."""
@@ -64,10 +81,14 @@ def missing_permission_check(app: App) -> list[Finding]:
                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
         touches_db = any(c in calls for c in DB_CALLS)
         if touches_db and not (calls & PERM_CALLS) and "get_doc" not in calls:
+            if _has_unknown_decorator(body):
+                sev, note = "info", " (an unrecognized decorator wraps this endpoint -- may already gate access, check it)"
+            else:
+                sev, note = "medium", ""
             findings.append(Finding(
-                rule_id="FRAP-API-002", severity="medium", app=app.name,
+                rule_id="FRAP-API-002", severity=sev, app=app.name,
                 message=f"{ep.module}.{ep.name} hits the database with no visible permission check "
-                        "(frappe.db bypasses DocType permissions).",
+                        f"(frappe.db bypasses DocType permissions){note}.",
                 file=ep.file, line=ep.line,
                 endpoint=f"{ep.module}.{ep.name}",
             ))
