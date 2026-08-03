@@ -161,15 +161,40 @@ def public_entry(d):
 def _save(d):
     frappe.get_doc(d).insert(ignore_permissions=True)
 ''', "FRAP-BIZ-002", "medium"),
-    # FRAP-BIZ-003
-    ("docstatus_assign", '''
+    # FRAP-BIZ-003 -- direction-graded: jump to submitted/cancelled (1/2) is
+    # the real risk (high); reset back to draft (0) is a common benign
+    # undo/restore pattern (info); dynamic value can't be proven (medium)
+    ("docstatus_assign_to_cancelled", '''
 def cancel_hack(doc):
     doc.docstatus = 2
-''', "FRAP-BIZ-003", True),
+''', "FRAP-BIZ-003", "high"),
+    ("docstatus_reset_to_draft", '''
+def restore_as_draft(doc):
+    doc.docstatus = 0
+''', "FRAP-BIZ-003", "info"),
+    ("docstatus_dynamic_value", '''
+def maybe_reset(doc, new_status):
+    doc.docstatus = new_status
+''', "FRAP-BIZ-003", "medium"),
     ("docstatus_proper", '''
 def do_cancel(doc):
     doc.cancel()
 ''', "FRAP-BIZ-003", False),
+    ("docstatus_canonical_submit_impl", '''
+class Document:
+    def _submit(self):
+        self.docstatus = 1
+        return self.save()
+''', "FRAP-BIZ-003", False),
+    ("docstatus_discard_method_excluded", '''
+class Document:
+    def discard(self):
+        self.docstatus = 2
+''', "FRAP-BIZ-003", False),
+    ("docstatus_discard_standalone_function_not_excluded", '''
+def discard(doc):
+    doc.docstatus = 2
+''', "FRAP-BIZ-003", True),
     # FRAP-BIZ-004
     ("handler_no_idempotency", '''
 import frappe

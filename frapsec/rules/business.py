@@ -90,18 +90,53 @@ def ignore_permissions(app: App) -> list[Finding]:
     return findings
 
 
+#  _submit/_cancel/_discard are Frappe's OWN canonical Document lifecycle
+# method names -- this IS the real implementation .submit()/.cancel() calls
+# into, not an app bypassing it. Confirmed on frappe/core: frappe/model/
+# document.py's _submit()/_cancel() were false positives under the old
+# blanket rule (flagging the framework's official implementation of the
+# very thing the message told you to use instead).
+_CANONICAL_LIFECYCLE_METHODS = {"_submit", "_cancel", "_discard", "discard"}
+
+
+def _is_instance_method(fn: ast.AST) -> bool:
+    return bool(fn.args.args) and fn.args.args[0].arg in ("self", "cls")
+
+
+def _docstatus_value_severity(value: ast.expr) -> str:
+    """Direction matters: going BACK to draft (0) is a common, benign
+    undo/restore pattern (confirmed on frappe/core: deleted_document.py
+    restore-as-draft, auto_repeat.py new-doc-starts-as-draft). Jumping
+    directly to submitted/cancelled (1/2) without going through
+    submit()/cancel()'s validations is the real risk. A non-literal value
+    can't be proven either way -- medium, not a blanket high guess."""
+    if isinstance(value, ast.Constant) and isinstance(value.value, int):
+        return "info" if value.value == 0 else "high"
+    if isinstance(value, ast.Attribute) and value.attr == "DRAFT":
+        return "info"
+    if isinstance(value, ast.Attribute) and value.attr in ("SUBMITTED", "CANCELLED"):
+        return "high"
+    return "medium"
+
+
 @rule
 def submitted_doc_mutation(app: App) -> list[Finding]:
     """Direct docstatus manipulation — bypasses submit/cancel workflow and its validations."""
     findings = []
     for py, fn in _iter_functions(app):
+        # bare "discard" collides more easily with app-defined functions than
+        # the underscore-prefixed names -- only skip it when it's an instance
+        # method (self/cls first arg), matching how Frappe's Document class
+        # actually defines it, not any function merely named "discard".
+        if fn.name in _CANONICAL_LIFECYCLE_METHODS and (fn.name != "discard" or _is_instance_method(fn)):
+            continue
         for node in ast.walk(fn):
-            # doc.docstatus = N  (N != 0) or db_set('docstatus', ...)
             if (isinstance(node, ast.Assign) and len(node.targets) == 1
                     and isinstance(node.targets[0], ast.Attribute)
                     and node.targets[0].attr == "docstatus"):
+                sev = _docstatus_value_severity(node.value)
                 findings.append(Finding(
-                    rule_id="FRAP-BIZ-003", severity="high", app=app.name,
+                    rule_id="FRAP-BIZ-003", severity=sev, app=app.name,
                     message=f"{fn.name}() assigns docstatus directly — bypasses submit/cancel "
                             "workflow validations; use doc.submit()/doc.cancel()",
                     file=str(py), line=node.lineno,
@@ -109,8 +144,13 @@ def submitted_doc_mutation(app: App) -> list[Finding]:
             if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                     and node.func.attr in ("db_set", "set_value")
                     and any(isinstance(a, ast.Constant) and a.value == "docstatus" for a in node.args)):
+                # value is the arg right after the "docstatus" literal, if any
+                idx = next((i for i, a in enumerate(node.args)
+                            if isinstance(a, ast.Constant) and a.value == "docstatus"), None)
+                val = node.args[idx + 1] if idx is not None and idx + 1 < len(node.args) else None
+                sev = _docstatus_value_severity(val) if val is not None else "medium"
                 findings.append(Finding(
-                    rule_id="FRAP-BIZ-003", severity="high", app=app.name,
+                    rule_id="FRAP-BIZ-003", severity=sev, app=app.name,
                     message=f"{fn.name}() writes docstatus via {node.func.attr}() — bypasses "
                             "submit/cancel workflow validations",
                     file=str(py), line=node.lineno,
