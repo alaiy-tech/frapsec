@@ -172,18 +172,8 @@ def handle_order_webhook(payload):
         return
     frappe.get_doc({"doctype": "SO", "oid": payload["id"]}).insert()
 ''', "FRAP-BIZ-004", False),
-    # FRAP-SECRET-001
-    ("secret_real", '''
-SHOPIFY_API_SECRET = "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"
-''', "FRAP-SECRET-001", True),
-    ("secret_placeholder", '''
-api_key = "your_api_key_here_please"
-''', "FRAP-SECRET-001", False),
-    ("secret_lookup", '''
-def get():
-    api_key = "os.environ based lookup below"
-    return None
-''', "FRAP-SECRET-001", False),
+    # secrets rule moved to secrets_scan.py (detect-secrets wrapper),
+    # tested separately in tests/test_secrets_scan.py, not part of run_all().
 ]
 
 HOOKS_CASES = [

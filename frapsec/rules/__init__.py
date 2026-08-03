@@ -10,7 +10,9 @@ def rule(fn):
 
 
 def run_all(apps: list[App]) -> list[Finding]:
-    from . import api, business, hooks, permissions, secrets  # noqa: F401 — importing registers rules
+    from . import api, business, hooks, permissions  # noqa: F401 — importing registers rules
+    # secrets: hand-rolled regex dropped in favor of `frapsec/secrets_scan.py`
+    # (detect-secrets) -- wired into cli.py, not the @rule pipeline.
     findings = []
     for app in apps:
         for r in _RULES:

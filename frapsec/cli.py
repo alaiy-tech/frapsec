@@ -30,6 +30,8 @@ def main(argv=None):
                       help="semgrep rules dir (default: bundled frapsec rules); "
                            "requires semgrep on PATH, skipped if absent")
     scan.add_argument("--no-semgrep", action="store_true", help="skip the semgrep layer")
+    scan.add_argument("--no-bandit", action="store_true", help="skip the bandit layer")
+    scan.add_argument("--no-secrets-scan", action="store_true", help="skip the detect-secrets layer")
     scan.add_argument("--diff", metavar="REF",
                       help="only report findings in files changed vs git REF (PR mode)")
     scan.add_argument("--baseline", metavar="PATH",
@@ -137,6 +139,14 @@ def main(argv=None):
         from . import semgrep
         with spin("Running semgrep..."):
             findings += semgrep.run(args.semgrep_rules, args.path)
+    if not args.no_bandit:
+        from . import bandit_scan
+        with spin("Running bandit..."):
+            findings += bandit_scan.run(args.path)
+    if not args.no_secrets_scan:
+        from . import secrets_scan
+        with spin("Running detect-secrets..."):
+            findings += secrets_scan.run(args.path)
     if args.diff:
         import subprocess
         changed = subprocess.run(
