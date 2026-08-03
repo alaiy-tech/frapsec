@@ -256,6 +256,8 @@ FIELD_PERM_CASES = [
      [{"fieldname": "api_secret", "fieldtype": "Password", "permlevel": 1}], "FRAP-PERM-004", False),
     ("no_password_field", [{"role": "Sales User", "read": 1, "write": 1}],
      [{"fieldname": "status"}], "FRAP-PERM-004", False),
+    ("password_writable_but_owner_scoped", [{"role": "Desk User", "read": 1, "write": 1, "if_owner": 1}],
+     [{"fieldname": "refresh_token", "fieldtype": "Password"}], "FRAP-PERM-004", False),
 ]
 
 # (label, py_src, fields, rule_id, should_fire) -- doctype is always "Thing"

@@ -48,14 +48,21 @@ def sensitive_field_permission(app: App) -> list[Finding]:
     fields at permlevel 0 inherit the DocType's normal write permission --
     any role with plain write access can set/see them via the API, not just
     admins. Scoped to fieldtype Password only (highest signal, no guessing
-    at which Currency/Float fields count as "sensitive" by name)."""
+    at which Currency/Float fields count as "sensitive" by name).
+
+    if_owner rows are skipped: that scopes write to the user's OWN document
+    only -- "any user can set their own OAuth token" is normal self-service
+    design (confirmed on frappe/core: Google Calendar/Contacts integration
+    docs, one per user, if_owner=1 -- both initial hits were this exact
+    legitimate pattern, 0 real bugs), not "anyone can touch anyone's secret".
+    """
     findings = []
     for dt in app.doctypes:
         if not dt.password_fields:
             continue
         for perm in dt.permissions:
             role = perm.get("role")
-            if role in ADMIN_TIER_ROLES or not perm.get("write"):
+            if role in ADMIN_TIER_ROLES or not perm.get("write") or perm.get("if_owner"):
                 continue
             if int(perm.get("permlevel") or 0) != 0:
                 continue
