@@ -38,6 +38,15 @@ def run_all(apps: list[App], only: set[str] | None = None) -> list[Finding]:
         for app in apps:
             findings.extend(tenancy.cross_company_query(app, company_doctypes))
 
+    # database.py rules need call-graph reachability (same signal BIZ-001/002
+    # already use) -- computed once per app, not a plain @rule.
+    if only is None or "database" in only:
+        from ..callgraph import reachable_from_endpoints
+        for app in apps:
+            reach = reachable_from_endpoints(app)
+            findings.extend(database.unfiltered_db_delete(app, reach))
+            findings.extend(database.raw_sql_no_where(app, reach))
+
     order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
     findings.sort(key=lambda f: order.get(f.severity, 5))
     return findings

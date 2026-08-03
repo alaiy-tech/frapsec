@@ -185,33 +185,53 @@ def handle_order_webhook(payload):
 ''', "FRAP-BIZ-004", False),
     # secrets rule moved to secrets_scan.py (detect-secrets wrapper),
     # tested separately in tests/test_secrets_scan.py, not part of run_all().
-    # FRAP-DB-001
-    ("db_delete_no_filter", '''
+    # FRAP-DB-001 -- reachability-graded like BIZ-001/002: unreachable -> medium,
+    # reachable (via a whitelisted endpoint) -> critical
+    ("db_delete_no_filter_unreachable", '''
 import frappe
 def wipe(doctype):
     frappe.db.delete(doctype)
-''', "FRAP-DB-001", True),
+''', "FRAP-DB-001", "medium"),
+    ("db_delete_no_filter_reachable", '''
+import frappe
+@frappe.whitelist()
+def entry(doctype):
+    wipe(doctype)
+def wipe(doctype):
+    frappe.db.delete(doctype)
+''', "FRAP-DB-001", "critical"),
     ("db_delete_with_filter", '''
 import frappe
 def cleanup(doctype):
     frappe.db.delete(doctype, {"status": "Cancelled"})
 ''', "FRAP-DB-001", False),
     # FRAP-DB-002
-    ("raw_delete_no_where", '''
+    ("raw_delete_no_where_reachable", '''
 import frappe
+@frappe.whitelist()
+def entry():
+    wipe()
 def wipe():
     frappe.db.sql("DELETE FROM `tabItem`")
-''', "FRAP-DB-002", True),
+''', "FRAP-DB-002", "critical"),
     ("raw_delete_with_where", '''
 import frappe
 def cleanup():
     frappe.db.sql("DELETE FROM `tabItem` WHERE disabled = 1")
 ''', "FRAP-DB-002", False),
-    ("raw_update_no_where", '''
+    ("raw_delete_where_across_lines", '''
+import frappe
+def cleanup():
+    frappe.db.sql("""
+        DELETE FROM `tabItem`
+        WHERE disabled = 1
+    """)
+''', "FRAP-DB-002", False),
+    ("raw_update_no_where_unreachable", '''
 import frappe
 def reset():
     frappe.db.sql("UPDATE `tabItem` SET disabled = 0")
-''', "FRAP-DB-002", "high"),
+''', "FRAP-DB-002", "low"),
 ]
 
 HOOKS_CASES = [
