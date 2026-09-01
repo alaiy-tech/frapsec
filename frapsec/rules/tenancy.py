@@ -18,6 +18,13 @@ from ..model import App, Finding
 
 _LIST_CALLS = ("get_list", "get_all")
 
+# get_value/exists with a DICT filter is the same question as get_list: "find me
+# a row matching this". Without a company filter it can match another company's
+# record. A lookup by primary key -- get_value("Sales Order", so_name, ...) --
+# is NOT this: the caller already knows which record it wants, and flagging
+# those would bury the real ones under every ordinary lookup in the codebase.
+_LOOKUP_CALLS = ("get_value", "exists")
+
 
 def _iter_functions_local(app_path, app_name):
     from pathlib import Path
@@ -93,6 +100,49 @@ def cross_company_query(app: App, company_doctypes: set[str]) -> list[Finding]:
                             "mix records across companies",
                     file=str(py), line=node.lineno,
                 ))
+    return findings
+
+
+def cross_company_lookup(app: App, company_doctypes: set[str]) -> list[Finding]:
+    """get_value/exists searching a multi-company DocType by filter, not by key.
+
+    Same leak as an unfiltered get_list, in the shape people do not think of as
+    a query: frappe.db.get_value("Sales Order", {"po_no": x}, "name") returns
+    whichever company's order matches first.
+
+    Only DICT filters count. A second argument that is a string is a primary-key
+    lookup -- the caller already knows the record -- and flagging those would
+    bury the real findings under every ordinary get_value in the codebase.
+    """
+    if not company_doctypes:
+        return []
+
+    findings = []
+    for py, fn in _iter_functions_local(app.path, app.name):
+        for node in ast.walk(fn):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in _LOOKUP_CALLS):
+                continue
+            if not node.args or not isinstance(node.args[0], ast.Constant):
+                continue
+            doctype_name = node.args[0].value
+            if doctype_name not in company_doctypes:
+                continue
+            # Second positional arg IS the filter for get_value/exists.
+            if len(node.args) < 2 or not isinstance(node.args[1], ast.Dict):
+                continue  # by key, or a filter we cannot read -- not a finding
+            keys = [k.value for k in node.args[1].keys if isinstance(k, ast.Constant)]
+            if "company" in keys:
+                continue
+            if not keys:
+                continue  # get_value("X", {}, ...) -- "any row", flagged below
+            findings.append(Finding(
+                rule_id="FRAP-TENANT-003", severity="medium", app=app.name,
+                message=f"{fn.name}() calls {node.func.attr}(\"{doctype_name}\") with a filter "
+                        f"on {', '.join(sorted(keys))} but no company -- a multi-company "
+                        "DocType, so this returns whichever company's record matches first",
+                file=str(py), line=node.lineno,
+            ))
     return findings
 
 

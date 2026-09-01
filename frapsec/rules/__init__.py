@@ -37,6 +37,7 @@ def run_all(apps: list[App], only: set[str] | None = None) -> list[Finding]:
         company_doctypes = tenancy.company_doctypes_in(apps)
         for app in apps:
             findings.extend(tenancy.cross_company_query(app, company_doctypes))
+            findings.extend(tenancy.cross_company_lookup(app, company_doctypes))
 
     # database.py rules need call-graph reachability (same signal BIZ-001/002
     # already use) -- computed once per app, not a plain @rule.

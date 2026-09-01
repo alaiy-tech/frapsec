@@ -460,6 +460,52 @@ import frappe
 def thing():
     return frappe.db.get_value("Thing", "x", "status")
 ''', ["status"], "FRAP-TENANT-002", False),
+
+    # FRAP-TENANT-003 -- get_value/exists SEARCHING a multi-company DocType.
+    # The same leak as an unfiltered get_list, in the shape people do not think
+    # of as a query. Confirmed live: a connector looked up a channel by its
+    # channel_id alone, so a second company with the same id would win.
+    ("get_value_dict_filter_no_company", '''
+import frappe
+def find(chan):
+    return frappe.db.get_value("Thing", {"channel_id": chan}, "customer_group")
+''', ["company", "channel_id"], "FRAP-TENANT-003", True),
+
+    ("exists_dict_filter_no_company", '''
+import frappe
+def check(ref):
+    return frappe.db.exists("Thing", {"external_ref": ref})
+''', ["company", "external_ref"], "FRAP-TENANT-003", True),
+
+    ("get_value_dict_filter_with_company", '''
+import frappe
+def find(chan, comp):
+    return frappe.db.get_value("Thing", {"channel_id": chan, "company": comp}, "x")
+''', ["company", "channel_id"], "FRAP-TENANT-003", False),
+
+    # A primary-key lookup is not a search -- the caller already knows the
+    # record. Flagging these would bury the real findings under every ordinary
+    # get_value in the codebase.
+    ("get_value_by_primary_key", '''
+import frappe
+def find(name):
+    return frappe.db.get_value("Thing", name, "status")
+''', ["company", "status"], "FRAP-TENANT-003", False),
+
+    # No company field on the DocType means no cross-company concept at all.
+    ("get_value_doctype_has_no_company", '''
+import frappe
+def find(code):
+    return frappe.db.get_value("Thing", {"code": code}, "name")
+''', ["code"], "FRAP-TENANT-003", False),
+
+    # A filter the AST cannot read is skipped, not guessed at -- same posture
+    # the get_list check already takes.
+    ("get_value_filter_is_a_variable", '''
+import frappe
+def find(filt):
+    return frappe.db.get_value("Thing", filt, "name")
+''', ["company", "code"], "FRAP-TENANT-003", False),
 ]
 
 
