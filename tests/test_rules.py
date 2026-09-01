@@ -153,14 +153,31 @@ def h():
     return frappe.db.sql("WITH t AS (SELECT 1) SELECT * FROM t", as_dict=True)
 ''', "FRAP-API-002", "medium"),
 
-    # A query the AST cannot read as a literal is treated as a write: missing a
-    # real write costs more than over-grading a read, and an f-string in SQL is
-    # worth a look on its own account.
-    ("db_sql_fstring_is_treated_as_a_write", '''
+    # An f-string is read from its leading literal. Interpolation lands in the
+    # column list or the WHERE clause, never in the verb, so the opening keyword
+    # is still there -- and refusing to look put a paginated read-only queue
+    # endpoint at high purely for using an f-string.
+    ("db_sql_fstring_select_is_a_read", '''
 import frappe
 @frappe.whitelist()
 def h(col):
     return frappe.db.sql(f"SELECT {col} FROM `tabThing`", as_dict=True)
+''', "FRAP-API-002", "medium"),
+
+    ("db_sql_fstring_update_is_still_a_write", '''
+import frappe
+@frappe.whitelist()
+def h(val, name):
+    frappe.db.sql(f"UPDATE `tabThing` SET status = {val} WHERE name = {name}")
+''', "FRAP-API-002", "high"),
+
+    # A statement built by concatenation or handed in as a variable cannot be
+    # read at all, so it stays a write.
+    ("db_sql_unreadable_statement_is_a_write", '''
+import frappe
+@frappe.whitelist()
+def h(query):
+    return frappe.db.sql(query, as_dict=True)
 ''', "FRAP-API-002", "high"),
     ("db_with_check", '''
 import frappe

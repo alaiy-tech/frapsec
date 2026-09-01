@@ -62,23 +62,43 @@ _NO_OP_DECORATORS = {"frappe.whitelist", "whitelist", "frappe.read_only", "read_
 def _sql_writes(body: ast.FunctionDef) -> bool:
     """True if any frappe.db.sql() in this function looks like it writes.
 
-    A literal statement whose first keyword is SELECT (or WITH, for a CTE that
-    ends in one) is a read. Anything else -- UPDATE, DELETE, INSERT, or a query
-    built at runtime that the AST cannot read -- is treated as a write: the
-    grading is there to make real writes visible, and missing one costs more
-    than over-grading a read.
+    A statement whose first keyword is SELECT (or WITH, for a CTE that ends in
+    one) is a read. Anything else -- UPDATE, DELETE, INSERT, or a query whose
+    opening keyword cannot be read at all -- is treated as a write: the grading
+    exists to make real writes visible, and missing one costs more than
+    over-grading a read.
+
+    An f-string counts, read from its leading literal. Interpolation happens in
+    the WHERE clause and the column list, never in the verb, so the opening
+    keyword is still there to read -- and refusing to look put a paginated
+    read-only queue endpoint at high purely for using an f-string.
     """
     for node in ast.walk(body):
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                 and node.func.attr == "sql" and node.args):
             continue
-        stmt = node.args[0]
-        if isinstance(stmt, ast.Constant) and isinstance(stmt.value, str):
-            head = stmt.value.lstrip().lstrip("(").lstrip().upper()
-            if head.startswith("SELECT") or head.startswith("WITH"):
-                continue
+        head = _sql_head(node.args[0])
+        if head is not None and (head.startswith("SELECT") or head.startswith("WITH")):
+            continue
         return True
     return False
+
+
+def _sql_head(stmt) -> str | None:
+    """The opening keyword of a SQL argument, upper-cased, or None if unreadable."""
+    text = None
+    if isinstance(stmt, ast.Constant) and isinstance(stmt.value, str):
+        text = stmt.value
+    elif isinstance(stmt, ast.JoinedStr):
+        # The verb comes before any interpolation in every real query shape;
+        # take the first literal chunk and read the keyword out of it.
+        for part in stmt.values:
+            if isinstance(part, ast.Constant) and isinstance(part.value, str) and part.value.strip():
+                text = part.value
+                break
+    if text is None:
+        return None
+    return text.lstrip().lstrip("(").lstrip().upper()
 
 
 def _has_unknown_decorator(body: ast.FunctionDef) -> bool:
