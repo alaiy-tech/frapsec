@@ -32,6 +32,12 @@ def main(argv=None):
     scan.add_argument("--no-semgrep", action="store_true", help="skip the semgrep layer")
     scan.add_argument("--no-bandit", action="store_true", help="skip the bandit layer")
     scan.add_argument("--no-secrets-scan", action="store_true", help="skip the detect-secrets layer")
+    scan.add_argument("--secrets-history", action="store_true",
+                      help="also scan git history for committed credentials — a key removed "
+                           "in a later commit is still live in history; off by default because "
+                           "it walks the log")
+    scan.add_argument("--history-commits", type=int, default=2000, metavar="N",
+                      help="how many commits back --secrets-history walks (default 2000)")
     scan.add_argument("--only", metavar="CATEGORY", action="append",
                       choices=["api", "business", "database", "hooks", "permissions", "tenancy", "config"],
                       help="restrict native rules to this category (repeatable). Also restricts "
@@ -159,6 +165,10 @@ def main(argv=None):
             from . import secrets_scan
             with spin("Running detect-secrets..."):
                 findings += secrets_scan.run(args.path)
+        if getattr(args, "secrets_history", False):
+            from . import secrets_history
+            with spin("Scanning git history for secrets..."):
+                findings += secrets_history.run(args.path, max_commits=args.history_commits)
     if args.diff:
         import subprocess
         changed = subprocess.run(
