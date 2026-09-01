@@ -290,6 +290,38 @@ FIELD_PERM_CASES = [
      [{"fieldname": "status"}], "FRAP-PERM-004", False),
     ("password_writable_but_owner_scoped", [{"role": "Desk User", "read": 1, "write": 1, "if_owner": 1}],
      [{"fieldname": "refresh_token", "fieldtype": "Password"}], "FRAP-PERM-004", False),
+
+    # FRAP-PERM-005 -- money fields writable at permlevel 0 by a non-admin role.
+    ("currency_field_writable_by_role", [{"role": "Sales User", "read": 1, "write": 1}],
+     [{"fieldname": "price", "fieldtype": "Currency"}], "FRAP-PERM-005", True),
+    ("discount_percent_writable_by_role", [{"role": "Sales User", "read": 1, "write": 1}],
+     [{"fieldname": "discount_percentage", "fieldtype": "Percent"}], "FRAP-PERM-005", True),
+
+    # Raised above permlevel 0 -- that IS the fix, must not fire.
+    ("currency_field_gated_by_permlevel", [{"role": "Sales User", "read": 1, "write": 1}],
+     [{"fieldname": "price", "fieldtype": "Currency", "permlevel": 1}], "FRAP-PERM-005", False),
+
+    # Admin-tier roles are the intended answer to "who may edit this".
+    ("currency_writable_only_by_admin_tier", [{"role": "System Manager", "read": 1, "write": 1}],
+     [{"fieldname": "price", "fieldtype": "Currency"}], "FRAP-PERM-005", False),
+
+    # Read-only cannot be written through the form regardless of permlevel.
+    ("currency_field_read_only", [{"role": "Sales User", "read": 1, "write": 1}],
+     [{"fieldname": "price", "fieldtype": "Currency", "read_only": 1}], "FRAP-PERM-005", False),
+
+    # No write grant at all -- nothing to gate.
+    ("currency_field_read_access_only", [{"role": "Sales User", "read": 1}],
+     [{"fieldname": "price", "fieldtype": "Currency"}], "FRAP-PERM-005", False),
+
+    # A name hint on a non-numeric fieldtype is NOT a money field. Confirmed
+    # live: orders_selling_price_list is a Link naming which price list to use.
+    ("price_in_name_but_a_link_field", [{"role": "Sales User", "read": 1, "write": 1}],
+     [{"fieldname": "orders_selling_price_list", "fieldtype": "Link", "options": "Price List"}],
+     "FRAP-PERM-005", False),
+
+    # A Percent field that is not a discount must not fire on the hint list.
+    ("percent_field_that_is_not_money", [{"role": "Sales User", "read": 1, "write": 1}],
+     [{"fieldname": "completion_percent", "fieldtype": "Percent"}], "FRAP-PERM-005", False),
 ]
 
 # (label, py_src, fields, rule_id, should_fire) -- doctype is always "Thing"

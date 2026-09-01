@@ -138,4 +138,5 @@ def _parse_doctype(app_name: str, json_file: Path) -> DocType | None:
         app=app_name, name=data.get("name", json_file.stem), file=str(json_file),
         is_child=bool(data.get("istable")), permissions=data.get("permissions", []),
         fieldnames=fieldnames, password_fields=password_fields,
+        fields=[f for f in fields if isinstance(f, dict)],
     )

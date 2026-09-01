@@ -54,6 +54,26 @@ CONFIG_FLAG_RULES = [
 
 TRIVIAL_DB_PASSWORDS = ("admin", "root", "password", "123456", "frappe")
 
+# ---- permissions.py: FRAP-PERM-005 ------------------------------------------
+# Fields whose VALUE is money or a money modifier. Writable at permlevel 0 by a
+# non-admin role means anyone with that role can change what a thing costs --
+# discount a sale to zero, alter a rate after approval -- with no separate
+# field-level gate. Frappe's answer to that is permlevel, which is exactly what
+# this checks for.
+#
+# Matched on fieldtype first (authoritative, set by the framework), then on
+# fieldname for the ones no fieldtype can distinguish: a Percent field is only
+# sensitive when it is a discount, not when it is a completion bar.
+MONEY_FIELDTYPES = ("Currency",)
+MONEY_FIELDNAME_HINTS = ("discount", "rate", "price", "amount", "margin", "commission")
+
+# A name hint only counts on a fieldtype that can actually HOLD a number.
+# Confirmed live: "orders_selling_price_list" is a Link to a Price List --
+# it names which price list to use, it is not a price. Matching the hint
+# against every fieldtype flagged it as a money field.
+NUMERIC_FIELDTYPES = ("Currency", "Float", "Int", "Percent")
+
+
 # ---- report.py --------------------------------------------------------------
 # frapsec severity -> SARIF level
 SARIF_LEVEL = {"critical": "error", "high": "error", "medium": "warning", "low": "note", "info": "note"}

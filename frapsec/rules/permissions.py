@@ -1,6 +1,7 @@
 """Permission-model rules over DocType JSON."""
 from . import rule
-from .catalog import ADMIN_TIER_ROLES, WRITE_PERMS
+from .catalog import (ADMIN_TIER_ROLES, MONEY_FIELDNAME_HINTS, MONEY_FIELDTYPES,
+                      NUMERIC_FIELDTYPES, WRITE_PERMS)
 from ..model import App, Finding
 
 
@@ -73,4 +74,73 @@ def sensitive_field_permission(app: App) -> list[Finding]:
                         "raise the field's permlevel or restrict write to an admin-tier role",
                 file=dt.file,
             ))
+    return findings
+
+
+def _money_fields_at_permlevel_zero(dt) -> list[str]:
+    """Money-carrying fields left at permlevel 0.
+
+    Fieldtype is authoritative where it can be -- a Currency field always holds
+    money. Fieldname is the fallback for the ones no fieldtype distinguishes: a
+    Percent field matters when it is a discount and does not when it is a
+    progress bar, and only the name says which.
+    """
+    out = []
+    for f in dt.fields:
+        if int(f.get("permlevel") or 0) != 0:
+            continue  # already gated behind a permlevel -- the intended fix
+        name = (f.get("fieldname") or "").lower()
+        ftype = f.get("fieldtype")
+        is_money = ftype in MONEY_FIELDTYPES or (
+            ftype in NUMERIC_FIELDTYPES and any(h in name for h in MONEY_FIELDNAME_HINTS)
+        )
+        if is_money:
+            if f.get("read_only"):
+                continue  # cannot be written through the form at all
+            out.append(f.get("fieldname"))
+    return out
+
+
+@rule
+def money_field_writable_at_permlevel_zero(app: App) -> list[Finding]:
+    """A non-admin role can write a price or discount field with no field-level gate.
+
+    Frappe's mechanism for "this role may edit the document but not THIS field"
+    is permlevel: a field above 0 needs a matching permlevel row to be written.
+    A money field left at permlevel 0 in a DocType a non-admin role can write
+    means that role can change what something costs -- discount a sale to zero,
+    alter a rate after approval -- and nothing in the permission model stops it.
+
+    Deliberately narrow. Only DocTypes that actually grant write to a non
+    admin-tier role are considered, read-only fields are skipped since they
+    cannot be written through the form regardless, and any field already raised
+    above permlevel 0 is skipped because that IS the fix. Reports the roles and
+    fields rather than a verdict: whether a Sales User should be able to
+    discount is a business decision, and the point is to surface that nobody has
+    made it explicitly.
+    """
+    findings = []
+    for dt in app.doctypes:
+        money = _money_fields_at_permlevel_zero(dt)
+        if not money:
+            continue
+        roles = []
+        for perm in dt.permissions:
+            role = perm.get("role")
+            if not role or role in ADMIN_TIER_ROLES:
+                continue
+            if perm.get("write") and not perm.get("if_owner"):
+                roles.append(role)
+        if not roles:
+            continue
+        shown = ", ".join(sorted(set(money))[:6])
+        more = "" if len(set(money)) <= 6 else f" (+{len(set(money)) - 6} more)"
+        findings.append(Finding(
+            rule_id="FRAP-PERM-005", severity="medium", app=app.name,
+            message=f"DocType '{dt.name}': role(s) {', '.join(sorted(set(roles)))} can write "
+                    f"money field(s) {shown}{more} at permlevel 0 — no field-level gate, so "
+                    "that role can change prices or discounts; raise the field's permlevel if "
+                    "it should need a separate grant",
+            file=dt.file,
+        ))
     return findings
