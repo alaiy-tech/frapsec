@@ -314,6 +314,58 @@ import frappe
 def list_things(filt):
     return frappe.get_list("Thing", filters=filt)
 ''', ["company", "status"], "FRAP-TENANT-001", False),
+
+    # FRAP-TENANT-002 -- cache keys shared across every site on the bench.
+    ("cache_key_literal_inline", '''
+import frappe
+def is_broken():
+    return frappe.cache().get_value("scrape:browser_broken")
+''', ["status"], "FRAP-TENANT-002", True),
+
+    # The common real shape: the key is a module-level constant, not inline.
+    ("cache_key_module_constant", '''
+import frappe
+_LOCK = "sync_running"
+def acquire():
+    return frappe.cache().set_value(_LOCK, "1")
+''', ["status"], "FRAP-TENANT-002", True),
+
+    # Scoped by site -- correct, must not fire.
+    ("cache_key_scoped_by_site", '''
+import frappe
+def get_thing():
+    return frappe.cache().get_value(f"thing::{frappe.local.site}")
+''', ["status"], "FRAP-TENANT-002", False),
+
+    # Scoped by session -- correct, must not fire. This is the real amazon
+    # oauth-state shape, which was clean on a live scan.
+    ("cache_key_scoped_by_session", '''
+import frappe
+def state_key():
+    return frappe.cache().get_value(f"oauth_state::{frappe.session.sid}")
+''', ["status"], "FRAP-TENANT-002", False),
+
+    # Key computed by a call the AST cannot follow -- skipped, not guessed at.
+    ("cache_key_from_unfollowable_call", '''
+import frappe
+def get_token(refresh):
+    return frappe.cache().get_value(_key(refresh))
+''', ["status"], "FRAP-TENANT-002", False),
+
+    # A cache object held in a local, the other real shape.
+    ("cache_via_local_variable", '''
+import frappe
+def slot():
+    cache = frappe.cache()
+    return cache.get_value("browser_slot")
+''', ["status"], "FRAP-TENANT-002", True),
+
+    # Not a cache call at all -- get_value on frappe.db must not fire.
+    ("db_get_value_is_not_a_cache_call", '''
+import frappe
+def thing():
+    return frappe.db.get_value("Thing", "x", "status")
+''', ["status"], "FRAP-TENANT-002", False),
 ]
 
 

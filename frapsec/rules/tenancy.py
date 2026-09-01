@@ -12,12 +12,14 @@ claim a verdict the AST can't actually support).
 """
 import ast
 
+from . import rule
+from ..callgraph import _iter_functions
 from ..model import App, Finding
 
 _LIST_CALLS = ("get_list", "get_all")
 
 
-def _iter_functions(app_path, app_name):
+def _iter_functions_local(app_path, app_name):
     from pathlib import Path
     pkg = Path(app_path) / app_name
     if not pkg.is_dir():
@@ -72,7 +74,7 @@ def cross_company_query(app: App, company_doctypes: set[str]) -> list[Finding]:
         return []
 
     findings = []
-    for py, fn in _iter_functions(app.path, app.name):
+    for py, fn in _iter_functions_local(app.path, app.name):
         for node in ast.walk(fn):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                     and node.func.attr in _LIST_CALLS):
@@ -91,4 +93,134 @@ def cross_company_query(app: App, company_doctypes: set[str]) -> list[Finding]:
                             "mix records across companies",
                     file=str(py), line=node.lineno,
                 ))
+    return findings
+
+
+# Values that make a cache key site-specific or user-specific on their own.
+# frappe.cache() is already per-site on a standard bench, but a bare literal
+# key is shared by every worker and every site that runs the same code from
+# the same bench -- and the connector apps here are installed on several
+# client sites off one bench, which is exactly that case.
+_SCOPING_HINTS = (
+    "frappe.local.site", "frappe.session.sid", "frappe.session.user",
+    "site_name", "get_site", "sid", "user",
+)
+
+
+def _key_arg(node: ast.Call):
+    """The key argument of a cache get/set/delete call, or None."""
+    for kw in node.keywords:
+        if kw.arg == "key":
+            return kw.value
+    return node.args[0] if node.args else None
+
+
+def _is_cache_call(node: ast.Call) -> str | None:
+    """The cache method name if this is a frappe.cache().<op>() call."""
+    if not isinstance(node.func, ast.Attribute):
+        return None
+    op = node.func.attr
+    if op not in ("get_value", "set_value", "delete_value", "hget", "hset", "hdel"):
+        return None
+    # frappe.cache().get_value(...) -- the receiver is itself a cache() call,
+    # or a name a local assignment gave the cache object (cache = frappe.cache()).
+    recv = node.func.value
+    if isinstance(recv, ast.Call) and isinstance(recv.func, ast.Attribute)             and recv.func.attr == "cache":
+        return op
+    if isinstance(recv, ast.Name) and recv.id in ("cache", "_cache", "redis"):
+        return op
+    return None
+
+
+def _module_literals(py) -> dict:
+    """{name: value} for module-level assignments of plain string literals.
+
+    Cache keys are conventionally module-level constants -- _REDIS_BROKEN_KEY,
+    _CACHE_PREFIX -- so resolving only names assigned inside the function would
+    miss the common case entirely.
+    """
+    try:
+        tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, SyntaxError):
+        return {}
+    out = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1                 and isinstance(node.targets[0], ast.Name)                 and isinstance(node.value, ast.Constant)                 and isinstance(node.value.value, str):
+            out[node.targets[0].id] = node.value.value
+    return out
+
+
+def _literal_key_source(fn: ast.AST, key_node, module_consts=None) -> str | None:
+    """The literal string a key resolves to, or None if it is scoped/dynamic.
+
+    Returns a value only when the key is provably a fixed string with nothing
+    site- or user-specific in it. An f-string or concatenation carrying any
+    scoping hint is treated as fine, and anything the AST cannot follow is
+    skipped rather than guessed at -- the same posture the filters check above
+    takes.
+    """
+    if key_node is None:
+        return None
+
+    # A plain literal: "deep_scrape:browser_broken"
+    if isinstance(key_node, ast.Constant) and isinstance(key_node.value, str):
+        return key_node.value
+
+    # A module- or function-level name assigned a plain literal.
+    if isinstance(key_node, ast.Name):
+        if module_consts and key_node.id in module_consts:
+            return module_consts[key_node.id]
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Assign) and len(node.targets) == 1                     and isinstance(node.targets[0], ast.Name)                     and node.targets[0].id == key_node.id                     and isinstance(node.value, ast.Constant)                     and isinstance(node.value.value, str):
+                return node.value.value
+        return None  # assigned something we cannot follow -- skip
+
+    # An f-string or concatenation. Fine if any part is site/session scoped.
+    if isinstance(key_node, (ast.JoinedStr, ast.BinOp)):
+        src = ast.dump(key_node)
+        if any(h in src for h in _SCOPING_HINTS):
+            return None
+        return None  # dynamic but unscoped -- too weak a signal to flag
+
+    return None
+
+
+@rule
+def unscoped_cache_key(app: App) -> list[Finding]:
+    """A cache key that is a fixed literal, shared across every site on the bench.
+
+    frappe.cache() is per-site on a standard bench, so this is a real finding
+    only where it is not -- but these connector apps are installed on several
+    client sites from one bench, and a literal key means one client's cached
+    state is the same entry as another's. Confirmed live: a scraper connector
+    marks a browser broken under the bare key "deep_scrape:browser_broken", so
+    one client's failure disables scraping for all of them.
+
+    Only flags a key it can prove is a fixed string. A key built from
+    frappe.local.site, the session id or the user is correctly scoped; anything
+    the AST cannot resolve is skipped rather than guessed at.
+    """
+    findings = []
+    consts_by_file = {}
+    for py, fn in _iter_functions(app):
+        if py not in consts_by_file:
+            consts_by_file[py] = _module_literals(py)
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Call):
+                continue
+            op = _is_cache_call(node)
+            if not op:
+                continue
+            literal = _literal_key_source(fn, _key_arg(node), consts_by_file[py])
+            if literal is None:
+                continue
+            findings.append(Finding(
+                rule_id="FRAP-TENANT-002", severity="medium", app=app.name,
+                message=f"{fn.name}() calls cache {op} with the fixed key "
+                        f"\"{literal}\" -- not scoped to a site or user, so every "
+                        "site on this bench shares the entry; scope it with "
+                        "frappe.local.site or the session/user if the value is "
+                        "per-site",
+                file=str(py), line=node.lineno,
+            ))
     return findings
