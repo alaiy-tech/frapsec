@@ -7,6 +7,7 @@ import ast
 import re
 from pathlib import Path
 
+from ..callgraph import _iter_functions
 from ..model import App, Finding
 
 _UNSAFE_SQL_PREFIXES = ("delete", "truncate", "update")
@@ -17,22 +18,6 @@ _WHERE = re.compile(r"\bwhere\b", re.IGNORECASE)
 # worth an inventory pass ("Migration Risks" is its own spec item), just
 # not an alarm-tier critical/high.
 _REVIEWED_CODE_DIRS = ("patches", "tests")
-
-
-def _iter_functions(app: App):
-    pkg = Path(app.path) / app.name
-    if not pkg.is_dir():
-        pkg = Path(app.path)
-    for py in pkg.rglob("*.py"):
-        if py.name.startswith("test_"):
-            continue
-        try:
-            tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                yield py, node
 
 
 def _in_reviewed_dir(py: Path) -> bool:

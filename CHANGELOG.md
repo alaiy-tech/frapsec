@@ -13,7 +13,8 @@ Severity/grading changes are called out explicitly — a CI gate pinned to a ver
 - Dynamic mode: `frapsec verify` confirms static findings against a real site (`frapsec/dynamic/`).
 - Call-graph reachability (`frapsec/callgraph.py`) — import-aware, resolves `enqueue()`/`get_attr()` string-dispatch targets.
 - Baseline file (`--baseline`/`--update-baseline`).
-- Secrets rules (FRAP-SECRET-001/002).
+- Secrets scanning via detect-secrets (`frapsec/secrets_scan.py`). Replaced the
+  hand-rolled FRAP-SECRET-001/002 regex rules, which no longer exist.
 - Full semgrep-rules vendoring — 47 rules across 10 source files (was 13, security-subset only).
 - Rich terminal UI: banner, mode indicator, colored tables, spinner.
 - HTML report (Jinja2), permission matrix command, PR diff mode.

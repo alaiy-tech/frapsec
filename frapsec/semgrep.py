@@ -11,7 +11,11 @@ import sys
 from .model import Finding
 
 _SEVERITY = {"ERROR": "high", "WARNING": "medium", "INFO": "info"}
-# overlaps with frapsec's own (smarter) rules -- ids match the frapsec-* rename
+# Overlaps with frapsec's own (smarter) rules -- ids match the frapsec-* rename.
+# Both live in semgrep_rules_lint/, NOT the default security set, so this filter
+# only bites when a caller points --semgrep-rules at the lint directory. Looks
+# dead against the default config; it is not, and dropping it would let the lint
+# pack double-report what api.py already grades by consequence.
 _SKIP = {"frapsec-guest-whitelisted-method", "frapsec-missing-argument-type-hint"}
 
 

@@ -3,7 +3,7 @@ import ast
 from pathlib import Path
 
 from . import rule
-from .catalog import DB_CALLS, DB_WRITE_CALLS, PERM_CALLS, SECRET_REVEAL_CALLS, WRITE_CALLS
+from .catalog import DB_CALLS, PERM_CALLS, SECRET_REVEAL_CALLS, WRITE_CALLS
 from ..model import App, Finding
 
 

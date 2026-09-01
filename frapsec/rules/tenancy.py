@@ -26,23 +26,6 @@ _LIST_CALLS = ("get_list", "get_all")
 _LOOKUP_CALLS = ("get_value", "exists")
 
 
-def _iter_functions_local(app_path, app_name):
-    from pathlib import Path
-    pkg = Path(app_path) / app_name
-    if not pkg.is_dir():
-        pkg = Path(app_path)
-    for py in pkg.rglob("*.py"):
-        if py.name.startswith("test_"):
-            continue
-        try:
-            tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                yield py, node
-
-
 def _filters_has_company(node: ast.Call) -> bool | None:
     """True/False if filters is a literal dict/list we can inspect, None if
     it's a variable we can't verify (caller should skip, not guess)."""
@@ -81,7 +64,7 @@ def cross_company_query(app: App, company_doctypes: set[str]) -> list[Finding]:
         return []
 
     findings = []
-    for py, fn in _iter_functions_local(app.path, app.name):
+    for py, fn in _iter_functions(app):
         for node in ast.walk(fn):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                     and node.func.attr in _LIST_CALLS):
@@ -118,7 +101,7 @@ def cross_company_lookup(app: App, company_doctypes: set[str]) -> list[Finding]:
         return []
 
     findings = []
-    for py, fn in _iter_functions_local(app.path, app.name):
+    for py, fn in _iter_functions(app):
         for node in ast.walk(fn):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                     and node.func.attr in _LOOKUP_CALLS):
