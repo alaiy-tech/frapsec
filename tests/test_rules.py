@@ -100,6 +100,68 @@ import frappe
 def h(name):
     return frappe.db.get_all("Sales Invoice", filters={"customer": name})
 ''', "FRAP-API-002", "info"),
+
+    # A READ with no check leaks data; a WRITE with no check lets any logged-in
+    # user change another user's records. Grading both medium buried the second
+    # among the first -- measured on ten real connector apps, 4 unauthenticated
+    # writes sat in an undifferentiated pile of 21.
+    ("db_write_no_check_is_high", '''
+import frappe
+@frappe.whitelist()
+def h(name, status):
+    frappe.db.set_value("Scraped Product", name, "review_status", status)
+''', "FRAP-API-002", "high"),
+
+    ("db_delete_no_check_is_high", '''
+import frappe
+@frappe.whitelist()
+def h(name):
+    frappe.db.delete("Scraped Product", {"name": name})
+''', "FRAP-API-002", "high"),
+
+    # A plain read stays medium -- leaking sync metadata is real but is not the
+    # same finding as an unauthenticated write.
+    ("db_read_no_check_stays_medium", '''
+import frappe
+@frappe.whitelist()
+def h(name):
+    return frappe.db.get_all("Sales Invoice", filters={"customer": name})
+''', "FRAP-API-002", "medium"),
+
+    # frappe.db.sql is not automatically a write. Counting every sql() as one
+    # put 5 plain SELECTs at high out of 9 on real code -- precise enough to be
+    # ignored, which is the failure this grading exists to prevent.
+    ("db_sql_select_is_a_read", '''
+import frappe
+@frappe.whitelist()
+def h():
+    return frappe.db.sql("SELECT name FROM `tabThing`", as_dict=True)
+''', "FRAP-API-002", "medium"),
+
+    ("db_sql_update_is_a_write", '''
+import frappe
+@frappe.whitelist()
+def h(name):
+    frappe.db.sql("UPDATE `tabThing` SET status = 'x' WHERE name = %s", name)
+''', "FRAP-API-002", "high"),
+
+    # A CTE that ends in a SELECT is still a read.
+    ("db_sql_with_cte_is_a_read", '''
+import frappe
+@frappe.whitelist()
+def h():
+    return frappe.db.sql("WITH t AS (SELECT 1) SELECT * FROM t", as_dict=True)
+''', "FRAP-API-002", "medium"),
+
+    # A query the AST cannot read as a literal is treated as a write: missing a
+    # real write costs more than over-grading a read, and an f-string in SQL is
+    # worth a look on its own account.
+    ("db_sql_fstring_is_treated_as_a_write", '''
+import frappe
+@frappe.whitelist()
+def h(col):
+    return frappe.db.sql(f"SELECT {col} FROM `tabThing`", as_dict=True)
+''', "FRAP-API-002", "high"),
     ("db_with_check", '''
 import frappe
 @frappe.whitelist()

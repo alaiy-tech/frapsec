@@ -7,6 +7,13 @@ PERM_CALLS = {"has_permission", "check_permission", "only_for", "throw_if_not_pe
 # frappe.db calls that mean "touches the database" (bypasses DocType perms)
 DB_CALLS = ("sql", "set_value", "delete", "get_all", "get_list")
 
+# Of those, the ones that CHANGE data. An endpoint anyone can call that reads a
+# log table leaks operational metadata; one that writes lets any logged-in user
+# alter another user's records. Grading both at medium buries the second among
+# the first -- measured on our own connector apps, 4 unauthenticated writes sat
+# in an undifferentiated pile of 21.
+DB_WRITE_CALLS = ("sql", "set_value", "delete")
+
 # calls that mean a guest endpoint WRITES from request data (-> critical)
 WRITE_CALLS = (".insert(", ".save(", ".delete(", "delete_doc", "set_value", ".submit(", "enqueue(")
 

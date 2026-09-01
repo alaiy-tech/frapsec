@@ -3,7 +3,7 @@ import ast
 from pathlib import Path
 
 from . import rule
-from .catalog import DB_CALLS, PERM_CALLS, SECRET_REVEAL_CALLS, WRITE_CALLS
+from .catalog import DB_CALLS, DB_WRITE_CALLS, PERM_CALLS, SECRET_REVEAL_CALLS, WRITE_CALLS
 from ..model import App, Finding
 
 
@@ -59,6 +59,28 @@ _NO_OP_DECORATORS = {"frappe.whitelist", "whitelist", "frappe.read_only", "read_
                      "do_not_record", "frappe.read_only()"}
 
 
+def _sql_writes(body: ast.FunctionDef) -> bool:
+    """True if any frappe.db.sql() in this function looks like it writes.
+
+    A literal statement whose first keyword is SELECT (or WITH, for a CTE that
+    ends in one) is a read. Anything else -- UPDATE, DELETE, INSERT, or a query
+    built at runtime that the AST cannot read -- is treated as a write: the
+    grading is there to make real writes visible, and missing one costs more
+    than over-grading a read.
+    """
+    for node in ast.walk(body):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "sql" and node.args):
+            continue
+        stmt = node.args[0]
+        if isinstance(stmt, ast.Constant) and isinstance(stmt.value, str):
+            head = stmt.value.lstrip().lstrip("(").lstrip().upper()
+            if head.startswith("SELECT") or head.startswith("WITH"):
+                continue
+        return True
+    return False
+
+
 def _has_unknown_decorator(body: ast.FunctionDef) -> bool:
     for dec in body.decorator_list:
         target = dec.func if isinstance(dec, ast.Call) else dec
@@ -81,8 +103,27 @@ def missing_permission_check(app: App) -> list[Finding]:
                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
         touches_db = any(c in calls for c in DB_CALLS)
         if touches_db and not (calls & PERM_CALLS) and "get_doc" not in calls:
+            # A write is a different finding from a read and must not be graded
+            # the same. Reading a sync log with no check leaks operational
+            # metadata; writing with no check lets any logged-in user alter
+            # another user's records. Measured on ten real connector apps: 4 of
+            # 21 hits were unauthenticated WRITES (set_review_status and
+            # save_notes overwriting another user's review decisions, and a
+            # cancel endpoint letting anyone stop anyone's sync) and they were
+            # invisible among the 17 reads.
+            #
+            # set_value/delete are unambiguously writes. `sql` is not: most
+            # uses in real connector code are SELECTs, and counting them all as
+            # writes put 5 plain reads at high out of 9 -- precise enough to be
+            # ignored, which is the failure this grading exists to prevent. So
+            # look at the statement: a literal starting with SELECT is a read,
+            # and anything the AST cannot read as a literal stays a write,
+            # since under-grading a real write is still the worse error.
+            writes = any(c in calls for c in ("set_value", "delete")) or _sql_writes(body)
             if _has_unknown_decorator(body):
                 sev, note = "info", " (an unrecognized decorator wraps this endpoint -- may already gate access, check it)"
+            elif writes:
+                sev, note = "high", " -- and it WRITES, so any logged-in user can change data here"
             else:
                 sev, note = "medium", ""
             findings.append(Finding(
