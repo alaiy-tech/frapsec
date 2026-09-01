@@ -33,10 +33,29 @@ def _load_json(p: Path) -> dict:
 
 def discover_app(app_path: str) -> App:
     root = Path(app_path)
+    # A path that does not exist must fail loudly. Silently returning an empty
+    # App means every rule has nothing to look at and the scan reports "No
+    # findings" -- a clean bill of health for a directory that was never read.
+    # Confirmed live: a mistyped path scanned ten real apps and reported zero
+    # findings for all of them, with no error and exit code 0. A CI job wired
+    # to a wrong path would pass forever.
+    if not root.is_dir():
+        raise SystemExit(f"not a directory: {app_path}")
+
     # frappe app layout: apps/myapp/myapp/... — inner package shares the dir name
     pkg = root / root.name
     if not pkg.is_dir():
         pkg = root  # scanning the inner package directly
+
+    # An app with no Python at all is almost certainly the wrong directory --
+    # a bench root, a docs folder, a repo whose package sits somewhere else.
+    # Say so rather than scanning nothing and calling it clean.
+    if not any(pkg.rglob("*.py")):
+        raise SystemExit(
+            f"no Python files under {pkg} -- is this a Frappe app directory? "
+            "(expected apps/<name>/<name>/, or pass the inner package directly)"
+        )
+
     app = App(name=root.name, path=str(root))
     app.hooks = _parse_hooks(pkg / "hooks.py")
     for py in pkg.rglob("*.py"):
