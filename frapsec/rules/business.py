@@ -181,3 +181,110 @@ def webhook_missing_idempotency(app: App) -> list[Finding]:
                 file=str(py), line=fn.lineno,
             ))
     return findings
+
+# Doctypes that ARE the permission model. Writing one grants access; writing one
+# from code an outsider can reach is an escalation path, not a data change.
+_PRIVILEGE_DOCTYPES = ("User", "Role", "Has Role", "Role Profile",
+                       "User Permission", "Custom DocPerm", "DocPerm")
+
+# Calls that CREATE or CHANGE a document. Naming a privilege doctype in a read
+# -- get_all("Has Role", ...) to list who holds a role -- is not a grant, and
+# treating it as one flagged every "who is on my team" endpoint in the codebase.
+_WRITE_CALLS = ("new_doc", "get_doc", "insert", "save", "set_value", "delete",
+                "delete_doc", "rename_doc")
+
+
+def _grants_a_role(fn: ast.AST) -> bool:
+    """True if this function assigns a role or writes a privilege doctype.
+
+    Two shapes cover real code: appending to a User's `roles` child table, and
+    creating/updating one of the doctypes that define who may do what.
+    """
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Call):
+            continue
+        # user.append("roles", {...}) / doc.add_roles(...)
+        if isinstance(node.func, ast.Attribute):
+            if node.func.attr == "add_roles":
+                return True
+            if node.func.attr == "append" and node.args \
+                    and isinstance(node.args[0], ast.Constant) \
+                    and node.args[0].value == "roles":
+                return True
+        # A privilege doctype named in a WRITE call. Reading one is not a grant
+        # -- confirmed live: a "who is on my team" endpoint calls
+        # get_all("User Permission", ...) and was flagged as granting a role.
+        if isinstance(node.func, ast.Attribute) and node.func.attr in _WRITE_CALLS:
+            for arg in node.args:
+                if isinstance(arg, ast.Constant) and arg.value in _PRIVILEGE_DOCTYPES:
+                    return True
+                if isinstance(arg, ast.Dict):
+                    for k, v in zip(arg.keys, arg.values):
+                        if (isinstance(k, ast.Constant) and k.value == "doctype"
+                                and isinstance(v, ast.Constant)
+                                and v.value in _PRIVILEGE_DOCTYPES):
+                            return True
+    return False
+
+
+def _bypasses_permissions(fn: ast.AST) -> bool:
+    for node in ast.walk(fn):
+        if isinstance(node, ast.keyword) and node.arg == "ignore_permissions":
+            if isinstance(node.value, ast.Constant) and node.value.value:
+                return True
+        if isinstance(node, ast.Attribute) and node.attr == "ignore_permissions":
+            return True
+    return False
+
+
+@rule
+def privilege_grant_path(app: App) -> list[Finding]:
+    """Code that grants a role or writes the permission model.
+
+    FRAP-BIZ-001 catches an endpoint impersonating Administrator. This catches
+    the other escalation shape, which is quieter and more permanent: code that
+    hands out a role, creates a User, or writes Has Role / User Permission /
+    Custom DocPerm. Where set_user is a switch that ends, a granted role
+    persists after the request.
+
+    Graded by who can reach it, the same signal BIZ-001 and BIZ-002 use. Almost
+    every app legitimately assigns roles during install or onboarding, so a flat
+    severity here would be pure noise -- what matters is whether the grant sits
+    behind a whitelisted endpoint, and whether that path also bypasses the
+    permission model on its way in.
+
+    Found on real code: a whitelisted POST endpoint that creates a User, assigns
+    a role, and inserts with ignore_permissions=True. That is a working
+    escalation path if the caller is not tightly authenticated -- and the rule
+    cannot know whether it is, which is exactly why a human should look.
+    """
+    reachable = reachable_from_endpoints(app)
+    whitelisted = {(ep.file, ep.name) for ep in app.endpoints}
+    findings = []
+    for py, fn in _iter_functions(app):
+        if not _grants_a_role(fn):
+            continue
+        is_endpoint = (str(py), fn.name) in whitelisted or any(
+            isinstance(d, (ast.Attribute, ast.Call, ast.Name))
+            and "whitelist" in ast.unparse(d) for d in getattr(fn, "decorator_list", [])
+        )
+        is_reachable = is_endpoint or reachable.contains(str(py), fn.name)
+        bypasses = _bypasses_permissions(fn)
+
+        if not is_reachable:
+            sev = "info"
+            note = " — not reachable from any whitelisted endpoint (install/onboarding code)"
+        elif bypasses:
+            sev = "high"
+            note = (" — reachable from a whitelisted endpoint AND bypasses the permission model "
+                    "on the way in; verify the caller cannot choose the role or the user")
+        else:
+            sev = "medium"
+            note = (" — reachable from a whitelisted endpoint; verify the caller cannot choose "
+                    "which role is granted")
+        findings.append(Finding(
+            rule_id="FRAP-BIZ-005", severity=sev, app=app.name,
+            message=f"{fn.name}() grants a role or writes the permission model{note}",
+            file=str(py), line=fn.lineno,
+        ))
+    return findings

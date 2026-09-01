@@ -169,6 +169,57 @@ def h(name):
     frappe.has_permission("Sales Invoice", throw=True)
     return frappe.db.get_all("Sales Invoice", filters={"customer": name})
 ''', "FRAP-API-002", False),
+    # FRAP-BIZ-005 -- code that grants a role or writes the permission model.
+    # The other escalation shape next to set_user("Administrator"), and the
+    # quieter one: a granted role outlives the request.
+    ("role_grant_from_endpoint_bypassing_perms", '''
+import frappe
+@frappe.whitelist()
+def invite(email, role):
+    user = frappe.new_doc("User")
+    user.email = email
+    user.append("roles", {"role": role})
+    user.insert(ignore_permissions=True)
+''', "FRAP-BIZ-005", "high"),
+
+    ("role_grant_from_endpoint_no_bypass", '''
+import frappe
+@frappe.whitelist()
+def invite(email):
+    user = frappe.new_doc("User")
+    user.append("roles", {"role": "Fixed Role"})
+    user.insert()
+''', "FRAP-BIZ-005", "medium"),
+
+    # Install and onboarding code assigns roles legitimately and constantly.
+    # Not reachable from an endpoint means it is not attacker-facing.
+    ("role_grant_in_install_code", '''
+import frappe
+def create_roles():
+    r = frappe.new_doc("Role")
+    r.role_name = "My Role"
+    r.insert(ignore_permissions=True)
+''', "FRAP-BIZ-005", "info"),
+
+    # READING a privilege doctype is not granting one. Confirmed live: a
+    # "who is on my team" endpoint calling get_all("User Permission", ...) was
+    # flagged as granting a role.
+    ("reading_has_role_is_not_a_grant", '''
+import frappe
+@frappe.whitelist()
+def my_team(brand):
+    return frappe.get_all("Has Role", filters={"role": brand}, pluck="parent")
+''', "FRAP-BIZ-005", False),
+
+    # An ordinary doctype write is not the permission model.
+    ("writing_a_normal_doctype_is_not_a_grant", '''
+import frappe
+@frappe.whitelist()
+def make_thing():
+    d = frappe.new_doc("Sales Order")
+    d.insert(ignore_permissions=True)
+''', "FRAP-BIZ-005", False),
+
     # FRAP-BIZ-001 -- reachability-graded: unreachable from any endpoint -> info,
     # reachable + unscoped -> high, reachable + scoped (try/finally restore) -> medium
     ("set_admin_unreachable", '''
