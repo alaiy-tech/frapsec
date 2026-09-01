@@ -2,7 +2,13 @@
 
 # ---- api.py ----------------------------------------------------------------
 # calls that count as a permission check inside a whitelisted method
-PERM_CALLS = {"has_permission", "check_permission", "only_for", "throw_if_not_permitted"}
+# get_roles is how you gate on a role when the doctype grants no write right to
+# check against -- a log table that is read-only by design still needs SOMETHING
+# guarding an operational endpoint that touches it. Confirmed live: an endpoint
+# gated with `if "System Manager" not in frappe.get_roles(): throw` was reported
+# as having no permission check at all.
+PERM_CALLS = {"has_permission", "check_permission", "only_for", "throw_if_not_permitted",
+              "get_roles"}
 
 # frappe.db calls that mean "touches the database" (bypasses DocType perms)
 DB_CALLS = ("sql", "set_value", "delete", "get_all", "get_list")
