@@ -30,22 +30,46 @@ def _rel_path(f: Finding) -> str:
     the last two segments otherwise: still far more specific than a basename,
     and still independent of where the repo is checked out.
     """
-    path = Path(f.file)
+    path = Path(str(f.file).replace("\\", "/"))
+    parts = list(path.parts)
+
+    # The app name appears in the path for a normal apps/<name>/<name> layout;
+    # anchor on its LAST occurrence, which is the inner package.
     if f.app:
-        parts = list(path.parts)
-        # The app name appears in the path for a normal apps/<name>/<name>
-        # layout; anchor on its LAST occurrence, which is the inner package.
         idx = [i for i, seg in enumerate(parts) if seg == f.app]
         if idx:
             return "/".join(parts[idx[-1]:])
-    return "/".join(path.parts[-2:]) if len(path.parts) > 1 else path.name
+
+    # Bandit, semgrep and detect-secrets never set `app`, so without this every
+    # external finding anchored on its last two segments while the native rules
+    # anchored on the app root -- two shapes in one baseline, and the external
+    # half never matched what the scan reported. Recover the app name from the
+    # path instead: the repeated directory in apps/<name>/<name> is it.
+    for i in range(len(parts) - 1):
+        if parts[i] == parts[i + 1]:
+            return "/".join(parts[i + 1:])
+
+    return "/".join(parts[-2:]) if len(parts) > 1 else path.name
 
 
 def _key(f: Finding) -> str:
-    try:
-        line_text = Path(f.file).read_text(
-            encoding="utf-8", errors="replace").splitlines()[f.line - 1].strip()
-    except (OSError, IndexError):
+    # Keyed on the flagged LINE OF SOURCE rather than its line number, so that
+    # inserting code above an accepted finding does not resurface it.
+    #
+    # The read has to succeed on every machine that computes the key, or the
+    # same finding hashes differently in CI than it did locally and the whole
+    # baseline stops matching. It is read relative to the current directory when
+    # the recorded absolute path is not present, which is the normal case for a
+    # baseline generated on one machine and checked on another.
+    line_text = None
+    for candidate in (Path(f.file), Path(_rel_path(f))):
+        try:
+            line_text = candidate.read_text(
+                encoding="utf-8", errors="replace").splitlines()[f.line - 1].strip()
+            break
+        except (OSError, IndexError):
+            continue
+    if line_text is None:
         line_text = str(f.line)
     raw = f"{f.rule_id}|{_rel_path(f)}|{line_text}"
     return hashlib.sha1(raw.encode()).hexdigest()[:16]

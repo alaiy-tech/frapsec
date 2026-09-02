@@ -7,9 +7,14 @@ could. Shells out; skipped with a stderr notice if not installed.
 import json
 import shutil
 import subprocess
+from pathlib import Path
 import sys
 
 from .model import Finding
+
+# Files frapsec itself writes into the app being scanned. Their contents are
+# scanner output, not application code.
+_SELF_WRITTEN = {".frapsec-baseline.json", "frapsec.sarif"}
 
 # .md/.txt etc flag prose mentioning "secret"/"password" as if it were a
 # literal value (confirmed false positive: a spec doc's "sh_webhook_secret
@@ -35,6 +40,12 @@ def run(target: str) -> list[Finding]:
     findings = []
     for path, hits in data.get("results", {}).items():
         if not path.endswith(tuple(g.lstrip("*") for g in _CODE_GLOBS)):
+            continue
+        # A baseline is a file full of SHA1 keys, which is exactly what an
+        # entropy check is looking for. Scanning it means every regeneration
+        # accepts the previous generation's hashes and writes more of them --
+        # 174 entries became 312 on one pass. They are not secrets.
+        if Path(path).name in _SELF_WRITTEN:
             continue
         for h in hits:
             findings.append(Finding(
