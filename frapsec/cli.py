@@ -53,6 +53,11 @@ def main(argv=None):
                       help="write all current findings to --baseline as accepted, then exit")
     scan.add_argument("--plain", action="store_true",
                       help="plain text output even on a terminal (no colors/table)")
+    scan.add_argument("--fail-on", metavar="SEVERITY", default="high",
+                      choices=["critical", "high", "medium", "low", "info", "never"],
+                      help="lowest severity that makes the scan exit non-zero (default: high). "
+                           "'medium' also fails on high and critical; 'never' always exits 0, "
+                           "for reporting without a gate.")
     perms = sub.add_parser("permissions", help="dump role -> DocType permission matrix")
     perms.add_argument("path", help="app path")
     perms.add_argument("--format", choices=["text", "json"], default="text")
@@ -197,7 +202,14 @@ def main(argv=None):
                "sarif": report.to_sarif, "html": report.to_html,
                "markdown": report.to_markdown}[args.format]
         print(fmt(findings))
-    sys.exit(1 if any(f.severity in ("critical", "high") for f in findings) else 0)
+    # Severities in descending order of seriousness. --fail-on names the
+    # LOWEST one that still fails, so "medium" fails on medium, high and
+    # critical, and "never" fails on nothing (report-only).
+    _ORDER = ["critical", "high", "medium", "low", "info"]
+    if args.fail_on == "never":
+        sys.exit(0)
+    gated = set(_ORDER[: _ORDER.index(args.fail_on) + 1])
+    sys.exit(1 if any(f.severity in gated for f in findings) else 0)
 
 
 @contextlib.contextmanager
