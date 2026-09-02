@@ -3,6 +3,8 @@ name = "frapsec"
 version = "0.2.0"
 description = "Framework-aware security scanner for Frappe/ERPNext benches"
 requires-python = ">=3.10"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = ["jinja2>=3.0", "rich>=13.0"]
 
 [project.scripts]

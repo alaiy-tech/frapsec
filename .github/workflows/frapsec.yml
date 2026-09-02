@@ -9,13 +9,8 @@
 #       uses: alaiy-tech/frapsec/.github/workflows/frapsec.yml@main
 #       with:
 #         app_path: .
-#       secrets:
-#         frapsec_repo_token: ${{ secrets.FRAPSEC_REPO_TOKEN }}
 #
-# frapsec's repo is private, so installing it in another repo's CI needs a
-# token with read access to it -- a PAT (classic, `repo` scope) stored as
-# FRAPSEC_REPO_TOKEN in the CALLING repo's secrets. Make frapsec public
-# instead and this whole secret goes away.
+# frapsec is public, so no token or secret is needed to install it.
 name: frapsec
 
 on:
@@ -24,12 +19,17 @@ on:
       app_path:
         type: string
         default: "."
-    secrets:
-      frapsec_repo_token:
-        required: true
+      baseline:
+        description: >-
+          Path to a frapsec baseline file. Findings recorded in it are not
+          reported and do not fail the build, so an app with known existing
+          findings can adopt the gate and still block anything NEW.
+        type: string
+        default: ""
 
 env:
   APP_PATH: ${{ inputs.app_path || '.' }}
+  BASELINE_ARG: ${{ inputs.baseline && format('--baseline {0}', inputs.baseline) || '' }}
 
 jobs:
   scan:
@@ -47,10 +47,10 @@ jobs:
       - name: Install frapsec + semgrep
         run: |
           pip install semgrep
-          pip install "git+https://x-access-token:${{ secrets.frapsec_repo_token }}@github.com/alaiy-tech/frapsec.git"
+          pip install "git+https://github.com/alaiy-tech/frapsec.git"
 
       - name: Scan
-        run: frapsec scan app "$APP_PATH" --format sarif > frapsec.sarif
+        run: frapsec scan app "$APP_PATH" $BASELINE_ARG --format sarif > frapsec.sarif
         continue-on-error: true   # report via SARIF; gate is the next step
 
       - name: Upload SARIF to code scanning
@@ -59,4 +59,4 @@ jobs:
           sarif_file: frapsec.sarif
 
       - name: Gate on critical/high
-        run: frapsec scan app "$APP_PATH" --no-semgrep > /dev/null
+        run: frapsec scan app "$APP_PATH" $BASELINE_ARG --no-semgrep > /dev/null

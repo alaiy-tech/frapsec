@@ -74,3 +74,9 @@ python tests/test_smoke.py    # end-to-end CLI + discovery
 python tests/test_baseline.py
 python tests/test_dynamic.py  # dynamic mode against a local mock server, no real site needed
 ```
+
+## License
+
+AGPL-3.0-or-later. See [LICENSE](LICENSE).
+
+Running a modified version as a network service means publishing your changes.
