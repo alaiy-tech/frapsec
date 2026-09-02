@@ -58,8 +58,13 @@ jobs:
           pip install semgrep
           pip install "git+https://github.com/alaiy-tech/frapsec.git"
 
+      # Deliberately WITHOUT the baseline. A baseline decides what blocks a
+      # merge, not what anyone is allowed to see: filtering it here left the
+      # Security tab empty on an app carrying 163 accepted findings, four of
+      # them high, so the only record of them was a JSON file nobody reads.
+      # Everything is reported; the gate below is what the baseline governs.
       - name: Scan
-        run: frapsec scan app "$APP_PATH" $BASELINE_ARG --format sarif > frapsec.sarif
+        run: frapsec scan app "$APP_PATH" --format sarif > frapsec.sarif
         continue-on-error: true   # report via SARIF; gate is the next step
 
       - name: Upload SARIF to code scanning
