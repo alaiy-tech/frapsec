@@ -19,6 +19,13 @@ on:
       app_path:
         type: string
         default: "."
+      fail_on:
+        description: >-
+          Lowest severity that fails the build: critical, high (default),
+          medium, low, info, or never for report-only. Medium also fails on
+          high and critical.
+        type: string
+        default: "high"
       baseline:
         description: >-
           Path to a frapsec baseline file. Findings recorded in it are not
@@ -30,6 +37,7 @@ on:
 env:
   APP_PATH: ${{ inputs.app_path || '.' }}
   BASELINE_ARG: ${{ inputs.baseline && format('--baseline {0}', inputs.baseline) || '' }}
+  FAIL_ON: ${{ inputs.fail_on || 'high' }}
 
 jobs:
   scan:
@@ -37,6 +45,7 @@ jobs:
     permissions:
       contents: read
       security-events: write   # SARIF upload
+      issues: write            # tracking issue on a failing scan
     steps:
       - uses: actions/checkout@v4
 
@@ -58,5 +67,58 @@ jobs:
         with:
           sarif_file: frapsec.sarif
 
-      - name: Gate on critical/high
-        run: frapsec scan app "$APP_PATH" $BASELINE_ARG --no-semgrep > /dev/null
+      # The gate. Runs before the issue steps so they can key off its result:
+      # continue-on-error keeps the job going, and the outcome is read back
+      # through steps.gate.outcome rather than failing the run here.
+      - name: Gate
+        id: gate
+        continue-on-error: true
+        run: frapsec scan app "$APP_PATH" $BASELINE_ARG --fail-on "$FAIL_ON" --no-semgrep > /dev/null
+
+      # Raise ONE tracking issue per branch, and reuse it rather than opening a
+      # new one on every push -- a scanner that files an issue per run is a
+      # scanner people mute. Only on a branch push, not a pull request: a PR
+      # already shows its findings inline on the diff.
+      - name: Open or update the tracking issue
+        if: steps.gate.outcome == 'failure' && github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: "frapsec: findings on ${{ github.ref_name }}"
+        run: |
+          frapsec scan app "$APP_PATH" $BASELINE_ARG --format markdown > body.md || true
+          {
+            echo
+            echo "Raised automatically by the frapsec workflow for commit ${{ github.sha }}."
+            echo "Re-runs comment here instead of opening another issue, and it closes when the scan passes."
+          } >> body.md
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" \
+            --json number,title --jq "[.[] | select(.title == env.TITLE) | .number] | first // empty")
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body-file body.md
+          else
+            gh issue create --title "$TITLE" --body-file body.md
+          fi
+
+      # Close a previously raised issue once the findings are actually gone,
+      # rather than leaving a stale one open.
+      - name: Close the tracking issue when clean
+        if: steps.gate.outcome == 'success' && github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: "frapsec: findings on ${{ github.ref_name }}"
+        run: |
+          N=$(gh issue list --state open --search "$TITLE in:title" \
+            --json number,title --jq "[.[] | select(.title == env.TITLE) | .number] | first // empty")
+          if [ -n "$N" ]; then
+            gh issue close "$N" --comment "Scan passes on ${{ github.sha }}. Closing."
+          fi
+
+      # Fail the run last, so the issue is already filed by the time the red
+      # build appears.
+      - name: Fail if the gate did not pass
+        if: steps.gate.outcome == 'failure'
+        run: |
+          echo "frapsec found findings at or above '$FAIL_ON'. See the Security tab and the tracking issue."
+          exit 1
